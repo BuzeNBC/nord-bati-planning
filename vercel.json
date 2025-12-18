@@ -2,11 +2,5 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "installCommand": "npm install",
-  "functions": {
-    "api/interpret.js": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 30
-    }
-  }
+  "installCommand": "npm install"
 }
