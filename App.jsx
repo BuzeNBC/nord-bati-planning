@@ -528,7 +528,8 @@ export default function NordBatiPlanning() {
   // ============================================
   
   const appelAPI = useCallback(async (commande) => {
-    const contexte = {
+    // Créer le contexte avec les chantiers actuels
+    const contexteActuel = {
       chantiers: chantiers.map(c => ({
         id: c.id,
         nom: c.nom,
@@ -542,13 +543,16 @@ export default function NordBatiPlanning() {
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message }))
     };
     
-    console.log('Contexte envoyé à l\'IA:', contexte.chantiers.map(c => c.nom)); // Debug
+    // Debug visible
+    const chantiersNoms = contexteActuel.chantiers.map(c => c.nom).join(', ');
+    console.log('🔧 DEBUG - Chantiers envoyés à l\'IA:', chantiersNoms);
+    setIaResponse(`Envoi à l'IA avec ${contexteActuel.chantiers.length} chantiers: ${chantiersNoms}...`);
     
     try {
       const response = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commande, contexte })
+        body: JSON.stringify({ commande, contexte: contexteActuel })
       });
       
       if (!response.ok) {
@@ -887,7 +891,7 @@ export default function NordBatiPlanning() {
           <div>
             <h1 style={{ margin: 0, fontSize: '1rem', fontWeight: '700', color: '#ff6b35' }}>NORD BATI</h1>
             <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b', letterSpacing: '1px' }}>
-              {salaries.length} salariés • {sousTraitants.length} sous-traitants
+              {salaries.length} salariés • {sousTraitants.length} sous-traitants • {chantiers.length} chantiers
             </p>
           </div>
         </div>
