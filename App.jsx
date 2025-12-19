@@ -442,6 +442,7 @@ export default function NordBatiPlanning() {
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
   const silenceTimerRef = useRef(null);
+  const traiterCommandeRef = useRef(null);
   
   // Générer les rappels
   useEffect(() => {
@@ -499,8 +500,8 @@ export default function NordBatiPlanning() {
         
         // Traiter la commande si on a du texte
         const textToProcess = finalTranscriptRef.current.trim();
-        if (textToProcess) {
-          traiterCommande(textToProcess);
+        if (textToProcess && traiterCommandeRef.current) {
+          traiterCommandeRef.current(textToProcess);
         }
         finalTranscriptRef.current = '';
       };
@@ -718,6 +719,11 @@ export default function NordBatiPlanning() {
     
     setIsProcessing(false);
   }, [appelAPI, executerAction]);
+  
+  // Garder la ref à jour avec la dernière version de traiterCommande
+  useEffect(() => {
+    traiterCommandeRef.current = traiterCommande;
+  }, [traiterCommande]);
   
   const toggleListening = () => {
     if (isListening) {
