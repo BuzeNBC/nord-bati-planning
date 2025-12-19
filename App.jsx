@@ -526,7 +526,7 @@ export default function NordBatiPlanning() {
   // APPEL API CLAUDE
   // ============================================
   
-  const appelAPI = async (commande) => {
+  const appelAPI = useCallback(async (commande) => {
     const contexte = {
       chantiers: chantiers.map(c => ({
         id: c.id,
@@ -540,6 +540,8 @@ export default function NordBatiPlanning() {
       tachesLivreur: tachesLivreur,
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message }))
     };
+    
+    console.log('Contexte envoyé à l\'IA:', contexte.chantiers.map(c => c.nom)); // Debug
     
     try {
       const response = await fetch('/api/interpret', {
@@ -562,7 +564,7 @@ export default function NordBatiPlanning() {
         message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
       };
     }
-  };
+  }, [chantiers, tachesLivreur, rappels]);
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -715,7 +717,7 @@ export default function NordBatiPlanning() {
     }
     
     setIsProcessing(false);
-  }, [executerAction]);
+  }, [appelAPI, executerAction]);
   
   const toggleListening = () => {
     if (isListening) {
