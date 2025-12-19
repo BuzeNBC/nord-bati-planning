@@ -440,6 +440,9 @@ export default function NordBatiPlanning() {
   const [iaConnected, setIaConnected] = useState(true);
   
   const recognitionRef = useRef(null);
+  const finalTranscriptRef = useRef('');
+  const silenceTimerRef = useRef(null);
+  const traiterCommandeRef = useRef(null);
   
   // Générer les rappels
   useEffect(() => {
@@ -460,24 +463,62 @@ export default function NordBatiPlanning() {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
+      recognitionRef.current.continuous = true; // Continue d'écouter
       recognitionRef.current.interimResults = true;
       recognitionRef.current.lang = 'fr-FR';
+      recognitionRef.current.maxAlternatives = 1;
       
       recognitionRef.current.onresult = (event) => {
-        const current = event.resultIndex;
-        const transcriptText = event.results[current][0].transcript;
-        setTranscript(transcriptText);
-        if (event.results[current].isFinal) {
-          traiterCommande(transcriptText);
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscriptRef.current += transcript + ' ';
+          } else {
+            interimTranscript = transcript;
+          }
         }
+        
+        // Afficher ce qu'on entend en temps réel
+        setTranscript(finalTranscriptRef.current + interimTranscript);
+        
+        // Reset le timer à chaque nouvelle parole détectée
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        
+        // Attendre 2.5 secondes de silence avant de traiter la commande
+        silenceTimerRef.current = setTimeout(() => {
+          if (finalTranscriptRef.current.trim()) {
+            recognitionRef.current?.stop();
+          }
+        }, 2500); // 2.5 secondes de silence = fin de phrase
       };
       
-      recognitionRef.current.onend = () => setIsListening(false);
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        
+        // Traiter la commande si on a du texte
+        const textToProcess = finalTranscriptRef.current.trim();
+        if (textToProcess && traiterCommandeRef.current) {
+          traiterCommandeRef.current(textToProcess);
+        }
+        finalTranscriptRef.current = '';
+      };
+      
       recognitionRef.current.onerror = (e) => {
         console.error('Erreur reconnaissance vocale:', e);
         setIsListening(false);
-        setIaResponse('Erreur micro. Utilise le champ texte.');
+        finalTranscriptRef.current = '';
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        
+        if (e.error === 'no-speech') {
+          setIaResponse('Je n\'ai rien entendu. Réessaie.');
+        } else if (e.error === 'audio-capture') {
+          setIaResponse('Problème de micro. Vérifie les autorisations.');
+        } else if (e.error !== 'aborted') {
+          setIaResponse('Erreur micro. Utilise le champ texte.');
+        }
       };
     }
   }, []);
@@ -486,8 +527,9 @@ export default function NordBatiPlanning() {
   // APPEL API CLAUDE
   // ============================================
   
-  const appelAPI = async (commande) => {
-    const contexte = {
+  const appelAPI = useCallback(async (commande) => {
+    // Créer le contexte avec les chantiers actuels
+    const contexteActuel = {
       chantiers: chantiers.map(c => ({
         id: c.id,
         nom: c.nom,
@@ -501,11 +543,16 @@ export default function NordBatiPlanning() {
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message }))
     };
     
+    // Debug visible
+    const chantiersNoms = contexteActuel.chantiers.map(c => c.nom).join(', ');
+    console.log('🔧 DEBUG - Chantiers envoyés à l\'IA:', chantiersNoms);
+    setIaResponse(`Envoi à l'IA avec ${contexteActuel.chantiers.length} chantiers: ${chantiersNoms}...`);
+    
     try {
       const response = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commande, contexte })
+        body: JSON.stringify({ commande, contexte: contexteActuel })
       });
       
       if (!response.ok) {
@@ -522,7 +569,7 @@ export default function NordBatiPlanning() {
         message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
       };
     }
-  };
+  }, [chantiers, tachesLivreur, rappels]);
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -675,16 +722,30 @@ export default function NordBatiPlanning() {
     }
     
     setIsProcessing(false);
-  }, [executerAction]);
+  }, [appelAPI, executerAction]);
+  
+  // Garder la ref à jour avec la dernière version de traiterCommande
+  useEffect(() => {
+    traiterCommandeRef.current = traiterCommande;
+  }, [traiterCommande]);
   
   const toggleListening = () => {
     if (isListening) {
+      // Arrêter l'écoute - ça va déclencher onend qui traitera la commande
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       recognitionRef.current?.stop();
     } else {
+      // Réinitialiser
+      finalTranscriptRef.current = '';
       setTranscript('');
       setIaResponse('');
-      recognitionRef.current?.start();
-      setIsListening(true);
+      try {
+        recognitionRef.current?.start();
+        setIsListening(true);
+      } catch (e) {
+        console.error('Erreur démarrage micro:', e);
+        setIaResponse('Erreur démarrage micro. Réessaie.');
+      }
     }
   };
   
@@ -830,7 +891,7 @@ export default function NordBatiPlanning() {
           <div>
             <h1 style={{ margin: 0, fontSize: '1rem', fontWeight: '700', color: '#ff6b35' }}>NORD BATI</h1>
             <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b', letterSpacing: '1px' }}>
-              {salaries.length} salariés • {sousTraitants.length} sous-traitants
+              {salaries.length} salariés • {sousTraitants.length} sous-traitants • {chantiers.length} chantiers
             </p>
           </div>
         </div>
@@ -911,7 +972,7 @@ export default function NordBatiPlanning() {
               }}
             >
               <Icons.Mic active={isListening} />
-              {isListening ? 'Écoute...' : isProcessing ? 'Traitement...' : 'Parler'}
+              {isListening ? '🔴 Parle... (clique pour envoyer)' : isProcessing ? 'Traitement...' : 'Parler'}
             </button>
             
             <form onSubmit={handleTextSubmit} style={{ marginTop: '0.5rem' }}>

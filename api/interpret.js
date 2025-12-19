@@ -27,10 +27,29 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Clé API non configurée' });
   }
   
+  // Log pour debug
+  console.log('=== Commande reçue ===');
+  console.log('Commande:', commande);
+  console.log('Nombre de chantiers:', contexte.chantiers?.length || 0);
+  console.log('Chantiers:', contexte.chantiers?.map(c => `${c.id}: ${c.nom}`).join(', ') || 'Aucun');
+  console.log('=====================');
+  
   const systemPrompt = `Tu es l'assistant IA de Nord Bati Construction, une entreprise de rénovation TCE (Tous Corps d'État) en Belgique.
 
-CONTEXTE ACTUEL:
-${JSON.stringify(contexte, null, 2)}
+AUJOURD'HUI: ${new Date().toISOString().split('T')[0]}
+
+====== CHANTIERS EXISTANTS ======
+${contexte.chantiers && contexte.chantiers.length > 0 
+  ? contexte.chantiers.map(c => `- ID:${c.id} | "${c.nom}" | ${c.adresse || 'Adresse non renseignée'} | ${c.type} | ${c.statut}
+    Lots: ${c.lots && c.lots.length > 0 ? c.lots.map(l => `${l.corps} (${l.statut})`).join(', ') : 'Aucun lot'}`).join('\n')
+  : 'Aucun chantier enregistré'}
+=================================
+
+====== TÂCHES LIVREUR (Alex) ======
+${contexte.tachesLivreur && contexte.tachesLivreur.length > 0
+  ? contexte.tachesLivreur.map(t => `- ${t.description} | ${t.date} | ${t.fait ? 'Fait' : 'À faire'}`).join('\n')
+  : 'Aucune tâche'}
+===================================
 
 ÉQUIPES DISPONIBLES:
 - Démol 1 (id:1): Marius + Vijai
@@ -53,6 +72,11 @@ POLYVALENTS (dispo en renfort): Momo (id:27), Ludo (id:28), Timothée (id:29)
 LIVREUR: Alex (id:30) - planning séparé avec tâches
 
 CORPS DE MÉTIER: Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
+
+IMPORTANT: 
+- Utilise TOUJOURS les chantiers listés ci-dessus comme référence
+- Si l'utilisateur parle d'un chantier, cherche-le dans la liste par son nom (même approximatif)
+- Pour ajouter un lot, tu DOIS utiliser l'ID du chantier existant
 
 TU DOIS RÉPONDRE UNIQUEMENT EN JSON avec cette structure:
 {
@@ -180,10 +204,34 @@ RÈGLES:
 - Réponds TOUJOURS en JSON valide, rien d'autre
 - Si tu ne comprends pas, utilise "question" pour demander des précisions
 - Les dates doivent être au format YYYY-MM-DD
-- Pour calculer les dates, aujourd'hui on est le ${new Date().toISOString().split('T')[0]}
 - Si l'utilisateur dit "2 semaines", calcule la date de fin = date début + 14 jours
 - Sois concis dans tes messages
-- Parle en français familier (tutoiement)`;
+- Parle en français familier (tutoiement)
+- IMPORTANT: Quand on te demande les chantiers en cours ou existants, liste TOUS les chantiers de la section "CHANTIERS EXISTANTS" ci-dessus
+- Pour ajouter un lot sur un chantier existant, utilise l'ID du chantier de la liste
+- Si un chantier est mentionné (ex: "Flocon", "Dupont"), cherche-le dans la liste CHANTIERS EXISTANTS par son nom
+
+EXEMPLES DE RÉPONSES:
+
+Si l'utilisateur demande "Quels chantiers j'ai ?" ou "Liste mes chantiers":
+{
+  "action": "info",
+  "params": {},
+  "message": "Tu as X chantiers: [liste tous les noms de chantiers de la section CHANTIERS EXISTANTS]"
+}
+
+Si l'utilisateur demande "Ajoute de la démolition sur Flocon" et que Flocon existe avec ID 12345:
+{
+  "action": "ajouter_lot",
+  "params": {
+    "chantierId": 12345,
+    "corps": "Démolition",
+    "dateDebut": "2025-01-20",
+    "dateFin": "2025-02-03",
+    "equipeId": 1
+  },
+  "message": "J'ajoute la démolition sur Flocon"
+}`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
