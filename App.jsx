@@ -708,10 +708,10 @@ export default function NordBatiPlanning() {
         break;
       }
       
-      case 'info':
       case 'question':
+      case 'info':
       default:
-        // Juste afficher le message
+        // Rien de spécial
         break;
     }
     
@@ -1049,6 +1049,31 @@ export default function NordBatiPlanning() {
                   }}>
                     <span style={{ color: '#ff6b35' }}>IA:</span> Réflexion en cours...
                   </div>
+                )}
+                
+                {/* Bouton Répondre après une question */}
+                {iaResponse && !isProcessing && !isListening && (
+                  <button
+                    onClick={toggleListening}
+                    style={{
+                      marginTop: '0.5rem',
+                      width: '100%',
+                      padding: '0.6rem',
+                      background: 'linear-gradient(135deg, #ff6b35, #f7931e)',
+                      border: 'none',
+                      borderRadius: '8px',
+                      color: '#0f172a',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.4rem'
+                    }}
+                  >
+                    🎤 Répondre
+                  </button>
                 )}
               </div>
             )}
