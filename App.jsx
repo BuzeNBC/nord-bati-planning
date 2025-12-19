@@ -438,6 +438,7 @@ export default function NordBatiPlanning() {
   const [textInput, setTextInput] = useState('');
   const [nouvelleTache, setNouvelleTache] = useState('');
   const [iaConnected, setIaConnected] = useState(true);
+  const [conversationHistory, setConversationHistory] = useState([]);
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
@@ -543,23 +544,34 @@ export default function NordBatiPlanning() {
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message }))
     };
     
-    // Debug visible
-    const chantiersNoms = contexteActuel.chantiers.map(c => c.nom).join(', ');
-    console.log('🔧 DEBUG - Chantiers envoyés à l\'IA:', chantiersNoms);
-    setIaResponse(`Envoi à l'IA avec ${contexteActuel.chantiers.length} chantiers: ${chantiersNoms}...`);
+    // Construire l'historique simplifié (max 6 messages)
+    const historiqueSimple = conversationHistory.slice(-6);
     
     try {
       const response = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commande, contexte: contexteActuel })
+        body: JSON.stringify({ 
+          commande, 
+          contexte: contexteActuel,
+          historique: historiqueSimple
+        })
       });
       
       if (!response.ok) {
         throw new Error('Erreur API');
       }
       
-      return await response.json();
+      const resultat = await response.json();
+      
+      // Ajouter à l'historique (garder max 6 messages)
+      setConversationHistory(prev => [
+        ...prev, 
+        { role: 'user', content: commande },
+        { role: 'assistant', content: resultat.message }
+      ].slice(-6));
+      
+      return resultat;
     } catch (error) {
       console.error('Erreur appel API:', error);
       setIaConnected(false);
@@ -569,7 +581,7 @@ export default function NordBatiPlanning() {
         message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
       };
     }
-  }, [chantiers, tachesLivreur, rappels]);
+  }, [chantiers, tachesLivreur, rappels, conversationHistory]);
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -712,13 +724,16 @@ export default function NordBatiPlanning() {
   
   const traiterCommande = useCallback(async (texte) => {
     setIsProcessing(true);
-    setIaResponse('Réflexion en cours...');
+    setTranscript(''); // Effacer le transcript car il va dans l'historique
     
     try {
       const resultat = await appelAPI(texte);
       executerAction(resultat);
     } catch (error) {
-      setIaResponse("Erreur lors du traitement de la commande.");
+      setConversationHistory(prev => [...prev, 
+        { role: 'user', content: texte },
+        { role: 'assistant', content: "Erreur lors du traitement de la commande." }
+      ]);
     }
     
     setIsProcessing(false);
@@ -994,9 +1009,25 @@ export default function NordBatiPlanning() {
               />
             </form>
             
-            {(transcript || iaResponse) && (
-              <div style={{ marginTop: '0.6rem', fontSize: '0.75rem' }}>
-                {transcript && (
+            {(transcript || iaResponse || conversationHistory.length > 0) && (
+              <div style={{ marginTop: '0.6rem', fontSize: '0.75rem', maxHeight: '200px', overflowY: 'auto' }}>
+                {/* Afficher les derniers échanges de l'historique */}
+                {conversationHistory.slice(-4).map((msg, idx) => (
+                  <div key={idx} style={{ 
+                    padding: '0.4rem', 
+                    background: msg.role === 'user' ? 'rgba(0,0,0,0.2)' : 'rgba(255,107,53,0.1)', 
+                    borderRadius: '6px', 
+                    marginBottom: '0.3rem',
+                    borderLeft: msg.role === 'assistant' ? '3px solid #ff6b35' : 'none'
+                  }}>
+                    <span style={{ color: msg.role === 'user' ? '#94a3b8' : '#ff6b35' }}>
+                      {msg.role === 'user' ? 'Toi:' : 'IA:'}
+                    </span> {msg.content}
+                  </div>
+                ))}
+                
+                {/* Message en cours de saisie */}
+                {transcript && !conversationHistory.find(h => h.content === transcript) && (
                   <div style={{ 
                     padding: '0.5rem', 
                     background: 'rgba(0,0,0,0.2)', 
@@ -1007,16 +1038,16 @@ export default function NordBatiPlanning() {
                     <span style={{ color: '#ff6b35' }}>Toi:</span> {transcript}
                   </div>
                 )}
-                {iaResponse && (
+                
+                {/* Réponse en cours */}
+                {isProcessing && (
                   <div style={{ 
                     padding: '0.6rem', 
                     background: 'rgba(255,107,53,0.1)', 
                     borderRadius: '6px', 
-                    borderLeft: '3px solid #ff6b35', 
-                    whiteSpace: 'pre-line',
-                    lineHeight: '1.4'
+                    borderLeft: '3px solid #ff6b35'
                   }}>
-                    <span style={{ color: '#ff6b35' }}>IA:</span> {iaResponse}
+                    <span style={{ color: '#ff6b35' }}>IA:</span> Réflexion en cours...
                   </div>
                 )}
               </div>
@@ -1028,9 +1059,28 @@ export default function NordBatiPlanning() {
               color: '#64748b',
               padding: '0.4rem',
               background: 'rgba(0,0,0,0.2)',
-              borderRadius: '4px'
+              borderRadius: '4px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
             }}>
-              💡 Exemples: "Crée un chantier Durand en démolition pendant 2 semaines" • "Ajoute un lot placo sur Dupont" • "Qu'est-ce qu'on a aujourd'hui ?"
+              <span>💡 Parle naturellement, je me souviens de la conversation</span>
+              {conversationHistory.length > 0 && (
+                <button
+                  onClick={() => setConversationHistory([])}
+                  style={{
+                    padding: '0.2rem 0.4rem',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: 'none',
+                    borderRadius: '3px',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '0.55rem'
+                  }}
+                >
+                  Nouvelle conv.
+                </button>
+              )}
             </div>
           </div>
           

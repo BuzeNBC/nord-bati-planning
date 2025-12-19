@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { commande, contexte } = req.body;
+  const { commande, contexte, historique } = req.body;
   
   if (!commande) {
     return res.status(400).json({ error: 'Commande manquante' });
@@ -27,14 +27,53 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Clé API non configurée' });
   }
   
+  // Construire les messages avec l'historique
+  let messages = [];
+  
+  // Ajouter l'historique de conversation s'il existe
+  if (historique && historique.length > 0) {
+    for (const msg of historique) {
+      // Pour les messages assistant, on doit simuler une réponse JSON valide
+      if (msg.role === 'assistant') {
+        messages.push({
+          role: 'assistant',
+          content: JSON.stringify({
+            action: 'info',
+            params: {},
+            message: msg.content
+          })
+        });
+      } else {
+        messages.push({
+          role: 'user',
+          content: msg.content
+        });
+      }
+    }
+  }
+  
+  // Ajouter la commande actuelle
+  messages.push({
+    role: 'user',
+    content: commande
+  });
+  
   // Log pour debug
   console.log('=== Commande reçue ===');
   console.log('Commande:', commande);
+  console.log('Historique:', historique?.length || 0, 'messages');
+  console.log('Messages envoyés:', messages.length);
   console.log('Nombre de chantiers:', contexte.chantiers?.length || 0);
-  console.log('Chantiers:', contexte.chantiers?.map(c => `${c.id}: ${c.nom}`).join(', ') || 'Aucun');
+  console.log('Chantiers:', contexte.chantiers?.map(c => c.nom).join(', '));
   console.log('=====================');
   
   const systemPrompt = `Tu es l'assistant IA de Nord Bati Construction, une entreprise de rénovation TCE (Tous Corps d'État) en Belgique.
+
+RÈGLES DE CONVERSATION:
+- Tu as accès à l'historique des derniers messages. UTILISE-LE pour comprendre le contexte.
+- Si l'utilisateur répond à une de tes questions (ex: tu demandes "quel chantier?" et il répond "Dupont"), UTILISE cette info pour compléter l'action précédente.
+- Si l'utilisateur dit juste un nom, une date ou un mot simple, c'est probablement une réponse à ta question précédente.
+- Sois concis et efficace. Évite de redemander des infos que l'utilisateur a déjà données.
 
 AUJOURD'HUI: ${new Date().toISOString().split('T')[0]}
 
@@ -245,12 +284,7 @@ Si l'utilisateur demande "Ajoute de la démolition sur Flocon" et que Flocon exi
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
         system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: commande
-          }
-        ]
+        messages: messages
       })
     });
     
