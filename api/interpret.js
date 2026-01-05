@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   
-  const { commande, contexte } = req.body;
+  const { commande, contexte, historique } = req.body;
   
   if (!commande) {
     return res.status(400).json({ error: 'Commande manquante' });
@@ -27,21 +27,72 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Clé API non configurée' });
   }
   
+  // Construire les messages avec l'historique
+  let messages = [];
+  
+  // Ajouter l'historique de conversation s'il existe
+  if (historique && historique.length > 0) {
+    for (const msg of historique) {
+      // Pour les messages assistant, on doit simuler une réponse JSON valide
+      if (msg.role === 'assistant') {
+        messages.push({
+          role: 'assistant',
+          content: JSON.stringify({
+            action: 'info',
+            params: {},
+            message: msg.content
+          })
+        });
+      } else {
+        messages.push({
+          role: 'user',
+          content: msg.content
+        });
+      }
+    }
+  }
+  
+  // Ajouter la commande actuelle
+  messages.push({
+    role: 'user',
+    content: commande
+  });
+  
   // Log pour debug
   console.log('=== Commande reçue ===');
   console.log('Commande:', commande);
+  console.log('Historique:', historique?.length || 0, 'messages');
+  console.log('Messages envoyés:', messages.length);
   console.log('Nombre de chantiers:', contexte.chantiers?.length || 0);
-  console.log('Chantiers:', contexte.chantiers?.map(c => `${c.id}: ${c.nom}`).join(', ') || 'Aucun');
+  console.log('Chantiers:', contexte.chantiers?.map(c => c.nom).join(', '));
   console.log('=====================');
   
   const systemPrompt = `Tu es l'assistant IA de Nord Bati Construction, une entreprise de rénovation TCE (Tous Corps d'État) en Belgique.
+
+RÈGLE D'OR: FAIS L'ACTION, NE POSE PAS DE QUESTIONS !
+- Si une info manque, utilise une valeur par défaut intelligente
+- Ne demande des précisions QUE si c'est absolument impossible de deviner
+- L'utilisateur veut construire son planning progressivement
+
+${contexte.chantierCourant ? `
+⭐⭐⭐ CHANTIER EN COURS DE DISCUSSION: "${contexte.chantierCourant.nom}" (ID: ${contexte.chantierCourant.id}) ⭐⭐⭐
+→ UTILISE CE CHANTIER si l'utilisateur ne précise pas de nom de chantier !
+→ Exemple: "ajoute de la démolition" = ajouter sur "${contexte.chantierCourant.nom}"
+` : '(Pas de chantier en cours de discussion)'}
+
+VALEURS PAR DÉFAUT:
+- Chantier: "${contexte.chantierCourant?.nom || 'demander si plusieurs chantiers'}" (ID: ${contexte.chantierCourant?.id || 'null'})
+- Durée d'un lot: 2 semaines (14 jours)
+- Date de début: aujourd'hui ou lendemain du dernier lot
+- Équipe: null (non assignée)
+- Type de chantier: "TCE"
 
 AUJOURD'HUI: ${new Date().toISOString().split('T')[0]}
 
 ====== CHANTIERS EXISTANTS ======
 ${contexte.chantiers && contexte.chantiers.length > 0 
-  ? contexte.chantiers.map(c => `- ID:${c.id} | "${c.nom}" | ${c.adresse || 'Adresse non renseignée'} | ${c.type} | ${c.statut}
-    Lots: ${c.lots && c.lots.length > 0 ? c.lots.map(l => `${l.corps} (${l.statut})`).join(', ') : 'Aucun lot'}`).join('\n')
+  ? contexte.chantiers.map(c => `- ID:${c.id} | "${c.nom}" | ${c.adresse || 'Pas d\'adresse'} | ${c.type} | ${c.statut}
+    Lots: ${c.lots && c.lots.length > 0 ? c.lots.map(l => `${l.corps} (${l.dateDebut} → ${l.dateFin}, ${l.statut})`).join(', ') : 'Aucun lot'}`).join('\n')
   : 'Aucun chantier enregistré'}
 =================================
 
@@ -193,44 +244,39 @@ ACTIONS POSSIBLES:
   "message": "L'équipe Placo 1 est composée de David et Peggy..."
 }
 
-14. question - Tu as besoin de plus d'infos pour exécuter la demande
+14. question - UTILISE UNIQUEMENT si tu ne peux vraiment pas deviner (ex: aucun chantier mentionné et plusieurs existent)
 {
   "action": "question",
   "params": {},
-  "message": "Pour quel chantier veux-tu ajouter ce lot ?"
+  "message": "Sur quel chantier ?"
 }
 
-RÈGLES:
+RÈGLES IMPORTANTES:
 - Réponds TOUJOURS en JSON valide, rien d'autre
-- Si tu ne comprends pas, utilise "question" pour demander des précisions
+- ÉVITE AU MAXIMUM d'utiliser "question" - préfère AGIR avec des valeurs par défaut
+- Si une date n'est pas précisée, utilise aujourd'hui comme date de début
+- Si une durée n'est pas précisée, utilise 2 semaines (14 jours)
+- Si une équipe n'est pas précisée, mets equipeId: null
 - Les dates doivent être au format YYYY-MM-DD
-- Si l'utilisateur dit "2 semaines", calcule la date de fin = date début + 14 jours
 - Sois concis dans tes messages
 - Parle en français familier (tutoiement)
-- IMPORTANT: Quand on te demande les chantiers en cours ou existants, liste TOUS les chantiers de la section "CHANTIERS EXISTANTS" ci-dessus
-- Pour ajouter un lot sur un chantier existant, utilise l'ID du chantier de la liste
-- Si un chantier est mentionné (ex: "Flocon", "Dupont"), cherche-le dans la liste CHANTIERS EXISTANTS par son nom
+- Si un seul chantier existe et que l'utilisateur parle d'un lot, c'est forcément pour ce chantier
+- Si l'utilisateur dit "ajoute de la démolition" sans préciser le chantier mais qu'il n'y en a qu'un, ajoute-le sur celui-là
 
-EXEMPLES DE RÉPONSES:
+EXEMPLES:
 
-Si l'utilisateur demande "Quels chantiers j'ai ?" ou "Liste mes chantiers":
-{
-  "action": "info",
-  "params": {},
-  "message": "Tu as X chantiers: [liste tous les noms de chantiers de la section CHANTIERS EXISTANTS]"
-}
-
-Si l'utilisateur demande "Ajoute de la démolition sur Flocon" et que Flocon existe avec ID 12345:
+"Ajoute de la démolition sur Flocon":
 {
   "action": "ajouter_lot",
-  "params": {
-    "chantierId": 12345,
-    "corps": "Démolition",
-    "dateDebut": "2025-01-20",
-    "dateFin": "2025-02-03",
-    "equipeId": 1
-  },
-  "message": "J'ajoute la démolition sur Flocon"
+  "params": { "chantierId": 12345, "corps": "Démolition", "dateDebut": "2025-01-20", "dateFin": "2025-02-03", "equipeId": null },
+  "message": "OK, démolition ajoutée sur Flocon (2 semaines à partir d'aujourd'hui)"
+}
+
+"Crée le chantier Martin":
+{
+  "action": "creer_chantier",
+  "params": { "nom": "Martin", "type": "TCE" },
+  "message": "Chantier Martin créé !"
 }`;
 
   try {
@@ -245,12 +291,7 @@ Si l'utilisateur demande "Ajoute de la démolition sur Flocon" et que Flocon exi
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
         system: systemPrompt,
-        messages: [
-          {
-            role: 'user',
-            content: commande
-          }
-        ]
+        messages: messages
       })
     });
     
