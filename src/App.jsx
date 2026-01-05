@@ -439,6 +439,7 @@ export default function NordBatiPlanning() {
   const [nouvelleTache, setNouvelleTache] = useState('');
   const [iaConnected, setIaConnected] = useState(true);
   const [conversationHistory, setConversationHistory] = useState([]);
+  const [currentChantierContext, setCurrentChantierContext] = useState(null); // Chantier dont on parle actuellement
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
@@ -541,11 +542,12 @@ export default function NordBatiPlanning() {
         lots: c.lots
       })),
       tachesLivreur: tachesLivreur,
-      rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message }))
+      rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message })),
+      chantierCourant: currentChantierContext // Le chantier dont on parle en ce moment
     };
     
-    // Construire l'historique simplifié (max 6 messages)
-    const historiqueSimple = conversationHistory.slice(-6);
+    // Construire l'historique simplifié (max 10 messages)
+    const historiqueSimple = conversationHistory.slice(-10);
     
     try {
       const response = await fetch('/api/interpret', {
@@ -564,12 +566,12 @@ export default function NordBatiPlanning() {
       
       const resultat = await response.json();
       
-      // Ajouter à l'historique (garder max 6 messages)
+      // Ajouter à l'historique (garder max 10 messages)
       setConversationHistory(prev => [
         ...prev, 
         { role: 'user', content: commande },
         { role: 'assistant', content: resultat.message }
-      ].slice(-6));
+      ].slice(-10));
       
       return resultat;
     } catch (error) {
@@ -581,7 +583,7 @@ export default function NordBatiPlanning() {
         message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
       };
     }
-  }, [chantiers, tachesLivreur, rappels, conversationHistory]);
+  }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext]);
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -605,12 +607,17 @@ export default function NordBatiPlanning() {
           statut: 'planifie'
         };
         setChantiers(prev => [...prev, nouveau]);
+        // Mettre à jour le contexte: on parle maintenant de ce chantier
+        setCurrentChantierContext({ id: nouveau.id, nom: nouveau.nom });
         break;
       }
       
       case 'ajouter_lot': {
+        const chantierId = params.chantierId;
         setChantiers(prev => prev.map(ch => {
-          if (ch.id === params.chantierId) {
+          if (ch.id === chantierId) {
+            // Mettre à jour le contexte: on parle de ce chantier
+            setCurrentChantierContext({ id: ch.id, nom: ch.nom });
             return {
               ...ch,
               lots: [...ch.lots, {
@@ -1090,9 +1097,14 @@ export default function NordBatiPlanning() {
               alignItems: 'center'
             }}>
               <span>💡 Parle naturellement, je me souviens de la conversation</span>
+              {currentChantierContext && (
+                <span style={{ color: '#ff6b35', fontWeight: '600' }}>
+                  📍 {currentChantierContext.nom}
+                </span>
+              )}
               {conversationHistory.length > 0 && (
                 <button
-                  onClick={() => setConversationHistory([])}
+                  onClick={() => { setConversationHistory([]); setCurrentChantierContext(null); }}
                   style={{
                     padding: '0.2rem 0.4rem',
                     background: 'rgba(255,255,255,0.1)',
