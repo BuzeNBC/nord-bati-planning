@@ -441,7 +441,30 @@ export default function NordBatiPlanning() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [currentChantierContext, setCurrentChantierContext] = useState(null);
   const [sessionActions, setSessionActions] = useState([]);
-  const [userInstructions, setUserInstructions] = useState([]); // Instructions dynamiques données par l'utilisateur
+  const [userInstructions, setUserInstructions] = useState([]);
+  
+  // Refs pour éviter les problèmes de closure
+  const conversationHistoryRef = useRef([]);
+  const currentChantierContextRef = useRef(null);
+  const userInstructionsRef = useRef([]);
+  const chantiersRef = useRef(INITIAL_CHANTIERS);
+  
+  // Synchroniser les refs avec les states
+  useEffect(() => {
+    conversationHistoryRef.current = conversationHistory;
+  }, [conversationHistory]);
+  
+  useEffect(() => {
+    currentChantierContextRef.current = currentChantierContext;
+  }, [currentChantierContext]);
+  
+  useEffect(() => {
+    userInstructionsRef.current = userInstructions;
+  }, [userInstructions]);
+  
+  useEffect(() => {
+    chantiersRef.current = chantiers;
+  }, [chantiers]);
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
@@ -532,16 +555,25 @@ export default function NordBatiPlanning() {
   // ============================================
   
   const appelAPI = useCallback(async (commande) => {
+    // Utiliser les refs pour avoir les valeurs à jour
+    const currentHistory = conversationHistoryRef.current;
+    const currentChantier = currentChantierContextRef.current;
+    const currentInstructions = userInstructionsRef.current;
+    const currentChantiers = chantiersRef.current;
+    
     // Debug
     console.log('=== ENVOI À L\'IA ===');
     console.log('Commande:', commande);
-    console.log('Historique:', conversationHistory.length, 'messages');
-    console.log('Chantier courant:', currentChantierContext?.nom || 'aucun');
-    console.log('Instructions:', userInstructions.length);
+    console.log('Historique:', currentHistory.length, 'messages');
+    if (currentHistory.length > 0) {
+      console.log('Derniers messages:', currentHistory.slice(-4).map(m => `${m.role}: ${m.content.substring(0, 30)}...`));
+    }
+    console.log('Chantier courant:', currentChantier?.nom || 'aucun');
+    console.log('Instructions:', currentInstructions.length);
     
     // Créer le contexte avec les chantiers actuels
     const contexteActuel = {
-      chantiers: chantiers.map(c => ({
+      chantiers: currentChantiers.map(c => ({
         id: c.id,
         nom: c.nom,
         adresse: c.adresse,
@@ -552,15 +584,10 @@ export default function NordBatiPlanning() {
       })),
       tachesLivreur: tachesLivreur,
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message })),
-      chantierCourant: currentChantierContext,
+      chantierCourant: currentChantier,
       historiqueSession: sessionActions,
-      instructionsUtilisateur: userInstructions
+      instructionsUtilisateur: currentInstructions
     };
-    
-    // Historique complet de la conversation (max 20 messages)
-    // On envoie tout l'historique pour que l'IA ait le contexte
-    const historiqueComplet = conversationHistory.slice(-20);
-    console.log('Historique envoyé:', historiqueComplet);
     
     try {
       const response = await fetch('/api/interpret', {
@@ -569,7 +596,7 @@ export default function NordBatiPlanning() {
         body: JSON.stringify({ 
           commande, 
           contexte: contexteActuel,
-          historique: historiqueComplet
+          historique: currentHistory.slice(-20)
         })
       });
       
@@ -578,16 +605,18 @@ export default function NordBatiPlanning() {
       }
       
       const resultat = await response.json();
-      console.log('Réponse IA:', resultat);
+      console.log('Réponse IA:', resultat.message?.substring(0, 50));
       
-      // Ajouter à l'historique de conversation APRÈS avoir reçu la réponse
+      // Mettre à jour l'historique
       const newHistory = [
-        ...conversationHistory, 
+        ...currentHistory, 
         { role: 'user', content: commande },
         { role: 'assistant', content: resultat.message || "OK" }
       ].slice(-20);
       
       setConversationHistory(newHistory);
+      // Aussi mettre à jour la ref immédiatement
+      conversationHistoryRef.current = newHistory;
       
       return resultat;
     } catch (error) {
@@ -598,7 +627,7 @@ export default function NordBatiPlanning() {
         actions: []
       };
     }
-  }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext, sessionActions, userInstructions]);
+  }, [tachesLivreur, rappels, sessionActions]); // Moins de dépendances car on utilise les refs
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -646,29 +675,41 @@ export default function NordBatiPlanning() {
           });
         }
         
-        setChantiers(prev => [...prev, nouveau]);
-        setCurrentChantierContext({ id: nouveau.id, nom: nouveau.nom });
+        setChantiers(prev => {
+          const newChantiers = [...prev, nouveau];
+          chantiersRef.current = newChantiers; // Mise à jour immédiate
+          return newChantiers;
+        });
+        const newContext = { id: nouveau.id, nom: nouveau.nom };
+        setCurrentChantierContext(newContext);
+        currentChantierContextRef.current = newContext; // Mise à jour immédiate de la ref
         break;
       }
       
       case 'ajouter_lot': {
         const chantierId = params.chantierId;
-        setChantiers(prev => prev.map(ch => {
-          if (ch.id === chantierId) {
-            setCurrentChantierContext({ id: ch.id, nom: ch.nom });
-            return {
-              ...ch,
-              lots: [...ch.lots, {
-                corps: params.corps,
-                dateDebut: params.dateDebut,
-                dateFin: params.dateFin,
-                equipeId: params.equipeId || null,
-                statut: 'planifie'
-              }]
-            };
-          }
-          return ch;
-        }));
+        setChantiers(prev => {
+          const newChantiers = prev.map(ch => {
+            if (ch.id === chantierId) {
+              const newContext = { id: ch.id, nom: ch.nom };
+              setCurrentChantierContext(newContext);
+              currentChantierContextRef.current = newContext;
+              return {
+                ...ch,
+                lots: [...ch.lots, {
+                  corps: params.corps,
+                  dateDebut: params.dateDebut,
+                  dateFin: params.dateFin,
+                  equipeId: params.equipeId || null,
+                  statut: 'planifie'
+                }]
+              };
+            }
+            return ch;
+          });
+          chantiersRef.current = newChantiers; // Mise à jour immédiate
+          return newChantiers;
+        });
         break;
       }
       
@@ -731,17 +772,23 @@ export default function NordBatiPlanning() {
       
       case 'memoriser_instruction': {
         if (params.instruction) {
-          setUserInstructions(prev => [...prev, {
+          const newInstruction = {
             id: Date.now(),
             texte: params.instruction,
             dateAjout: new Date().toISOString()
-          }]);
+          };
+          setUserInstructions(prev => {
+            const newInstructions = [...prev, newInstruction];
+            userInstructionsRef.current = newInstructions; // Mise à jour immédiate
+            return newInstructions;
+          });
         }
         break;
       }
       
       case 'oublier_instructions': {
         setUserInstructions([]);
+        userInstructionsRef.current = []; // Mise à jour immédiate
         break;
       }
       
@@ -1152,7 +1199,9 @@ export default function NordBatiPlanning() {
                 <button
                   onClick={() => { 
                     setConversationHistory([]); 
+                    conversationHistoryRef.current = [];
                     setCurrentChantierContext(null); 
+                    currentChantierContextRef.current = null;
                     setSessionActions([]); 
                     // Note: on garde les instructions utilisateur, elles persistent
                   }}
