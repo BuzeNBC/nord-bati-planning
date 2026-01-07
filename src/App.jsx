@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSupabaseData } from './useSupabaseData';
 
 // ============================================
 // CONFIGURATION MÉTIER NORD BATI
@@ -415,10 +416,39 @@ const Icons = {
 export default function NordBatiPlanning() {
   const [employes] = useState(EMPLOYES);
   const [equipes, setEquipes] = useState(EQUIPES);
-  const [chantiers, setChantiers] = useState(INITIAL_CHANTIERS);
-  const [tachesLivreur, setTachesLivreur] = useState(INITIAL_TACHES_LIVREUR);
+  
+  // ============================================
+  // DONNÉES PERSISTÉES SUPABASE
+  // ============================================
+  const {
+    chantiers,
+    tachesLivreur,
+    userInstructions,
+    rappelsValides,
+    isLoading: isLoadingData,
+    error: dataError,
+    isOnline,
+    chantiersRef,
+    userInstructionsRef,
+    creerChantier,
+    ajouterLot,
+    modifierLot,
+    supprimerLot: supprimerLotDB,
+    ajouterDocument: ajouterDocumentDB,
+    supprimerDocument: supprimerDocumentDB,
+    ajouterTacheLivreur: ajouterTacheLivreurDB,
+    toggleTacheLivreur,
+    ajouterInstruction,
+    effacerInstructions,
+    validerRappel,
+    setChantiers,
+    setTachesLivreur,
+    setUserInstructions,
+    setRappelsValides,
+    reloadData
+  } = useSupabaseData();
+  
   const [rappels, setRappels] = useState([]);
-  const [rappelsValides, setRappelsValides] = useState(new Set());
   
   const [activeTab, setActiveTab] = useState('aujourdhui');
   const [selectedChantier, setSelectedChantier] = useState(null);
@@ -441,13 +471,10 @@ export default function NordBatiPlanning() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [currentChantierContext, setCurrentChantierContext] = useState(null);
   const [sessionActions, setSessionActions] = useState([]);
-  const [userInstructions, setUserInstructions] = useState([]);
   
-  // Refs pour éviter les problèmes de closure
+  // Refs pour éviter les problèmes de closure (sauf ceux gérés par useSupabaseData)
   const conversationHistoryRef = useRef([]);
   const currentChantierContextRef = useRef(null);
-  const userInstructionsRef = useRef([]);
-  const chantiersRef = useRef(INITIAL_CHANTIERS);
   
   // Synchroniser les refs avec les states
   useEffect(() => {
@@ -457,14 +484,6 @@ export default function NordBatiPlanning() {
   useEffect(() => {
     currentChantierContextRef.current = currentChantierContext;
   }, [currentChantierContext]);
-  
-  useEffect(() => {
-    userInstructionsRef.current = userInstructions;
-  }, [userInstructions]);
-  
-  useEffect(() => {
-    chantiersRef.current = chantiers;
-  }, [chantiers]);
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
@@ -630,172 +649,115 @@ export default function NordBatiPlanning() {
   }, [tachesLivreur, rappels, sessionActions]); // Moins de dépendances car on utilise les refs
   
   // ============================================
-  // EXÉCUTION DES ACTIONS
+  // EXÉCUTION DES ACTIONS (avec Supabase)
   // ============================================
   
-  const executerAction = useCallback((action, params) => {
-    switch (action) {
-      case 'creer_chantier': {
-        const nouveau = {
-          id: Date.now(),
-          nom: params.nom || 'Nouveau chantier',
-          adresse: params.adresse || '',
-          client: params.client || '',
-          telephone: params.telephone || '',
-          type: params.type || 'TCE',
-          lots: [],
-          documents: [],
-          notes: '',
-          statut: 'planifie'
-        };
-        
-        // Si lotsAuto est demandé, créer tous les lots TCE automatiquement
-        if (params.lotsAuto) {
-          const lotsTCE = [
-            'Démolition', 'Maçonnerie', 'Couverture', 'Charpente', 'Placo',
-            'Électricité', 'Plomberie', 'Chauffage', 'Menuiseries ext.',
-            'Faïence', 'Façade', 'Peinture', 'Enduit', 'Nettoyage'
-          ];
-          const today = new Date();
-          let currentDate = new Date(today);
+  const executerAction = useCallback(async (action, params) => {
+    try {
+      switch (action) {
+        case 'creer_chantier': {
+          const nouveauChantier = await creerChantier({
+            nom: params.nom || 'Nouveau chantier',
+            adresse: params.adresse || '',
+            client: params.client || '',
+            telephone: params.telephone || '',
+            type: params.type || 'TCE',
+            lotsAuto: params.lotsAuto
+          });
           
-          lotsTCE.forEach(corps => {
-            const dateDebut = currentDate.toISOString().split('T')[0];
-            currentDate.setDate(currentDate.getDate() + 14);
-            const dateFin = currentDate.toISOString().split('T')[0];
-            currentDate.setDate(currentDate.getDate() + 1);
-            
-            nouveau.lots.push({
-              corps,
-              dateDebut,
-              dateFin,
-              equipeId: null,
-              statut: 'planifie'
-            });
-          });
+          const newContext = { id: nouveauChantier.id, nom: nouveauChantier.nom };
+          setCurrentChantierContext(newContext);
+          currentChantierContextRef.current = newContext;
+          break;
         }
         
-        setChantiers(prev => {
-          const newChantiers = [...prev, nouveau];
-          chantiersRef.current = newChantiers; // Mise à jour immédiate
-          return newChantiers;
-        });
-        const newContext = { id: nouveau.id, nom: nouveau.nom };
-        setCurrentChantierContext(newContext);
-        currentChantierContextRef.current = newContext; // Mise à jour immédiate de la ref
-        break;
-      }
-      
-      case 'ajouter_lot': {
-        const chantierId = params.chantierId;
-        setChantiers(prev => {
-          const newChantiers = prev.map(ch => {
-            if (ch.id === chantierId) {
-              const newContext = { id: ch.id, nom: ch.nom };
-              setCurrentChantierContext(newContext);
-              currentChantierContextRef.current = newContext;
-              return {
-                ...ch,
-                lots: [...ch.lots, {
-                  corps: params.corps,
-                  dateDebut: params.dateDebut,
-                  dateFin: params.dateFin,
-                  equipeId: params.equipeId || null,
-                  statut: 'planifie'
-                }]
-              };
-            }
-            return ch;
+        case 'ajouter_lot': {
+          const chantierId = params.chantierId;
+          const chantier = chantiersRef.current.find(c => c.id === chantierId);
+          
+          await ajouterLot(chantierId, {
+            corps: params.corps,
+            dateDebut: params.dateDebut,
+            dateFin: params.dateFin,
+            equipeId: params.equipeId || null
           });
-          chantiersRef.current = newChantiers; // Mise à jour immédiate
-          return newChantiers;
-        });
-        break;
-      }
-      
-      case 'modifier_lot': {
-        setChantiers(prev => prev.map(ch => {
-          if (ch.id === params.chantierId) {
-            const newLots = [...ch.lots];
-            if (newLots[params.lotIndex]) {
-              newLots[params.lotIndex] = { 
-                ...newLots[params.lotIndex], 
-                ...(params.corps && { corps: params.corps }),
-                ...(params.dateDebut && { dateDebut: params.dateDebut }),
-                ...(params.dateFin && { dateFin: params.dateFin }),
-                ...(params.equipeId !== undefined && { equipeId: params.equipeId }),
-                ...(params.statut && { statut: params.statut })
-              };
-            }
-            return { ...ch, lots: newLots };
+          
+          if (chantier) {
+            const newContext = { id: chantier.id, nom: chantier.nom };
+            setCurrentChantierContext(newContext);
+            currentChantierContextRef.current = newContext;
           }
-          return ch;
-        }));
-        break;
-      }
-      
-      case 'supprimer_lot': {
-        setChantiers(prev => prev.map(ch => {
-          if (ch.id === params.chantierId) {
-            const newLots = ch.lots.filter((_, idx) => idx !== params.lotIndex);
-            return { ...ch, lots: newLots };
-          }
-          return ch;
-        }));
-        break;
-      }
-      
-      case 'ajouter_tache_livreur': {
-        setTachesLivreur(prev => [...prev, {
-          id: Date.now(),
-          description: params.description,
-          date: params.date || getTodayStr(),
-          fait: false
-        }]);
-        break;
-      }
-      
-      case 'naviguer': {
-        const vueMap = {
-          'aujourdhui': 'aujourdhui',
-          'planning': 'planning',
-          'chantiers': 'chantiers',
-          'equipes': 'equipes',
-          'livreur': 'livreur'
-        };
-        if (vueMap[params.vue]) {
-          setActiveTab(vueMap[params.vue]);
-          setSelectedChantier(null);
+          break;
         }
-        break;
-      }
-      
-      case 'memoriser_instruction': {
-        if (params.instruction) {
-          const newInstruction = {
-            id: Date.now(),
-            texte: params.instruction,
-            dateAjout: new Date().toISOString()
+        
+        case 'modifier_lot': {
+          const chantier = chantiersRef.current.find(c => c.id === params.chantierId);
+          if (chantier && chantier.lots[params.lotIndex]) {
+            const lotId = chantier.lots[params.lotIndex].id;
+            const updates = {};
+            if (params.corps) updates.corps = params.corps;
+            if (params.dateDebut) updates.dateDebut = params.dateDebut;
+            if (params.dateFin) updates.dateFin = params.dateFin;
+            if (params.equipeId !== undefined) updates.equipeId = params.equipeId;
+            if (params.statut) updates.statut = params.statut;
+            
+            await modifierLot(params.chantierId, lotId, updates);
+          }
+          break;
+        }
+        
+        case 'supprimer_lot': {
+          const chantier = chantiersRef.current.find(c => c.id === params.chantierId);
+          if (chantier && chantier.lots[params.lotIndex]) {
+            const lotId = chantier.lots[params.lotIndex].id;
+            await supprimerLotDB(params.chantierId, lotId);
+          }
+          break;
+        }
+        
+        case 'ajouter_tache_livreur': {
+          await ajouterTacheLivreurDB({
+            description: params.description,
+            date: params.date || getTodayStr(),
+            fait: false
+          });
+          break;
+        }
+        
+        case 'naviguer': {
+          const vueMap = {
+            'aujourdhui': 'aujourdhui',
+            'planning': 'planning',
+            'chantiers': 'chantiers',
+            'equipes': 'equipes',
+            'livreur': 'livreur'
           };
-          setUserInstructions(prev => {
-            const newInstructions = [...prev, newInstruction];
-            userInstructionsRef.current = newInstructions; // Mise à jour immédiate
-            return newInstructions;
-          });
+          if (vueMap[params.vue]) {
+            setActiveTab(vueMap[params.vue]);
+            setSelectedChantier(null);
+          }
+          break;
         }
-        break;
+        
+        case 'memoriser_instruction': {
+          if (params.instruction) {
+            await ajouterInstruction(params.instruction);
+          }
+          break;
+        }
+        
+        case 'oublier_instructions': {
+          await effacerInstructions();
+          break;
+        }
+        
+        default:
+          break;
       }
-      
-      case 'oublier_instructions': {
-        setUserInstructions([]);
-        userInstructionsRef.current = []; // Mise à jour immédiate
-        break;
-      }
-      
-      default:
-        break;
+    } catch (error) {
+      console.error('Erreur exécution action:', error);
     }
-  }, []);
+  }, [creerChantier, ajouterLot, modifierLot, supprimerLotDB, ajouterTacheLivreurDB, ajouterInstruction, effacerInstructions]);
   
   // ============================================
   // TRAITEMENT COMMANDE
@@ -882,51 +844,43 @@ export default function NordBatiPlanning() {
     setViewStartDate(d.toISOString().split('T')[0]);
   };
   
-  const ajouterTacheLivreur = () => {
+  const ajouterTacheLivreurLocal = async () => {
     if (nouvelleTache.trim()) {
-      setTachesLivreur(prev => [...prev, {
-        id: Date.now(),
-        description: nouvelleTache,
-        date: getTodayStr(),
-        fait: false
-      }]);
-      setNouvelleTache('');
-    }
-  };
-  
-  const toggleTacheLivreur = (id) => {
-    setTachesLivreur(prev => prev.map(t => t.id === id ? { ...t, fait: !t.fait } : t));
-  };
-  
-  const ajouterDocument = (chantierId) => {
-    if (newDocument.nom.trim()) {
-      setChantiers(prev => prev.map(ch => {
-        if (ch.id === chantierId) {
-          return {
-            ...ch,
-            documents: [...(ch.documents || []), {
-              id: Date.now(),
-              nom: newDocument.nom,
-              type: newDocument.type,
-              dateAjout: getTodayStr(),
-              url: '#'
-            }]
-          };
-        }
-        return ch;
-      }));
-      setNewDocument({ nom: '', type: 'plan' });
-      setShowAddDocument(false);
-    }
-  };
-  
-  const supprimerDocument = (chantierId, docId) => {
-    setChantiers(prev => prev.map(ch => {
-      if (ch.id === chantierId) {
-        return { ...ch, documents: ch.documents.filter(d => d.id !== docId) };
+      try {
+        await ajouterTacheLivreurDB({
+          description: nouvelleTache,
+          date: getTodayStr(),
+          fait: false
+        });
+        setNouvelleTache('');
+      } catch (err) {
+        console.error('Erreur ajout tâche:', err);
       }
-      return ch;
-    }));
+    }
+  };
+  
+  const ajouterDocumentLocal = async (chantierId) => {
+    if (newDocument.nom.trim()) {
+      try {
+        await ajouterDocumentDB(chantierId, {
+          nom: newDocument.nom,
+          type: newDocument.type,
+          url: '#'
+        });
+        setNewDocument({ nom: '', type: 'plan' });
+        setShowAddDocument(false);
+      } catch (err) {
+        console.error('Erreur ajout document:', err);
+      }
+    }
+  };
+  
+  const supprimerDocumentLocal = async (chantierId, docId) => {
+    try {
+      await supprimerDocumentDB(chantierId, docId);
+    } catch (err) {
+      console.error('Erreur suppression document:', err);
+    }
   };
   
   const getDocumentIcon = (type) => {
@@ -975,6 +929,88 @@ export default function NordBatiPlanning() {
   // RENDU
   // ============================================
 
+  // Écran de chargement initial
+  if (isLoadingData) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(145deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1rem',
+        color: '#e2e8f0'
+      }}>
+        <div style={{
+          width: '60px',
+          height: '60px',
+          background: 'linear-gradient(135deg, #ff6b35 0%, #f7931e 100%)',
+          borderRadius: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: '800',
+          fontSize: '1.5rem',
+          color: '#0f172a',
+          animation: 'pulse 1.5s infinite'
+        }}>
+          NB
+        </div>
+        <div style={{ fontSize: '1.1rem', fontWeight: '600' }}>Chargement des données...</div>
+        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Connexion à Supabase</div>
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Écran d'erreur si pas de connexion
+  if (dataError && !isOnline) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(145deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1rem',
+        color: '#e2e8f0',
+        padding: '2rem'
+      }}>
+        <div style={{ fontSize: '3rem' }}>⚠️</div>
+        <div style={{ fontSize: '1.3rem', fontWeight: '600', color: '#ff6b35' }}>Erreur de connexion</div>
+        <div style={{ fontSize: '0.9rem', color: '#94a3b8', textAlign: 'center', maxWidth: '400px' }}>
+          {dataError}
+        </div>
+        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '1rem' }}>
+          Vérifie ta connexion internet et les variables d'environnement Supabase.
+        </div>
+        <button
+          onClick={reloadData}
+          style={{
+            marginTop: '1rem',
+            padding: '0.75rem 1.5rem',
+            background: 'linear-gradient(135deg, #ff6b35, #f7931e)',
+            border: 'none',
+            borderRadius: '8px',
+            color: '#0f172a',
+            fontWeight: '600',
+            cursor: 'pointer',
+            fontSize: '0.9rem'
+          }}
+        >
+          🔄 Réessayer
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -1015,6 +1051,27 @@ export default function NordBatiPlanning() {
         </div>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Indicateur Supabase */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            padding: '0.25rem 0.5rem',
+            background: isOnline ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+            borderRadius: '4px',
+            border: `1px solid ${isOnline ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
+          }}>
+            <div style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              background: isOnline ? '#22c55e' : '#ef4444'
+            }} />
+            <span style={{ fontSize: '0.6rem', color: isOnline ? '#22c55e' : '#ef4444' }}>
+              {isOnline ? 'Sync' : 'Offline'}
+            </span>
+          </div>
+          
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Aujourd'hui</div>
             <div style={{ fontSize: '0.85rem', fontWeight: '600' }}>
@@ -1881,7 +1938,7 @@ export default function NordBatiPlanning() {
                       </select>
                     </div>
                     <button
-                      onClick={() => ajouterDocument(selectedChantier.id)}
+                      onClick={() => ajouterDocumentLocal(selectedChantier.id)}
                       style={{
                         padding: '0.5rem 0.8rem',
                         background: '#22c55e',
@@ -1920,7 +1977,7 @@ export default function NordBatiPlanning() {
                           </div>
                         </div>
                         <button 
-                          onClick={(e) => { e.stopPropagation(); supprimerDocument(selectedChantier.id, doc.id); }}
+                          onClick={(e) => { e.stopPropagation(); supprimerDocumentLocal(selectedChantier.id, doc.id); }}
                           style={{
                             padding: '0.3rem 0.5rem',
                             background: 'rgba(239,68,68,0.2)',
@@ -2027,7 +2084,7 @@ export default function NordBatiPlanning() {
                   value={nouvelleTache}
                   onChange={(e) => setNouvelleTache(e.target.value)}
                   placeholder="Nouvelle tâche..."
-                  onKeyDown={(e) => e.key === 'Enter' && ajouterTacheLivreur()}
+                  onKeyDown={(e) => e.key === 'Enter' && ajouterTacheLivreurLocal()}
                   style={{
                     flex: 1,
                     padding: '0.6rem 0.8rem',
@@ -2039,7 +2096,7 @@ export default function NordBatiPlanning() {
                   }}
                 />
                 <button
-                  onClick={ajouterTacheLivreur}
+                  onClick={ajouterTacheLivreurLocal}
                   style={{
                     padding: '0.6rem 1rem',
                     background: 'rgba(255,107,53,0.2)',

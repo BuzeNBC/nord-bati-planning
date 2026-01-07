@@ -1,103 +1,173 @@
-# Nord Bati Planning - Version IA
+# 🏗️ NORD BATI PLANNING v3.0
 
-Application de planning intelligent avec IA Claude intégrée.
+Application de planning de chantiers pour Nord Bati Construction avec assistant IA vocal/texte et **persistance des données Supabase**.
 
-## 🚀 Mise à jour depuis la version précédente
+## 🚀 Stack technique
 
-Cette version intègre l'IA Claude pour comprendre tes demandes en langage naturel.
+- **Frontend** : React 18 + Vite
+- **Backend API** : Vercel Serverless Functions
+- **Base de données** : Supabase (PostgreSQL)
+- **IA** : Claude API (Anthropic) avec Tools/Functions
+- **Reconnaissance vocale** : Web Speech API
 
-### Pour mettre à jour ton app existante:
+## 📦 Installation
 
-1. **Sur GitHub**, supprime les anciens fichiers et uploade ceux de ce ZIP
-2. **Sur Vercel**, configure la clé API (voir ci-dessous)
-3. Vercel va automatiquement redéployer
+### 1. Cloner et installer les dépendances
 
----
+```bash
+git clone <repo>
+cd nord-bati-ia
+npm install
+```
 
-## 🔑 Configuration de la clé API Claude
+### 2. Configuration Supabase
 
-### Étape 1: Créer un compte Anthropic
+#### 2.1. Créer un projet Supabase
 
-1. Va sur **https://console.anthropic.com**
-2. Clique sur **"Sign Up"** (ou connecte-toi si tu as déjà un compte)
-3. Vérifie ton email
+1. Va sur [supabase.com](https://supabase.com) et crée un compte
+2. Crée un nouveau projet (gratuit)
+3. Attends que le projet soit initialisé (~2 minutes)
 
-### Étape 2: Obtenir une clé API
+#### 2.2. Créer les tables
 
-1. Une fois connecté, va dans **"API Keys"** (menu de gauche)
-2. Clique sur **"Create Key"**
-3. Donne un nom à ta clé (ex: "Nord Bati")
-4. **COPIE LA CLÉ** (elle ne sera plus visible après !)
-   - Elle ressemble à: `sk-ant-api03-xxxxxxxxxxxx...`
+1. Dans Supabase, va dans **SQL Editor**
+2. Copie-colle le contenu de `supabase-schema.sql`
+3. Clique sur **Run** pour exécuter le script
 
-### Étape 3: Ajouter la clé dans Vercel
+#### 2.3. Récupérer les clés API
 
-1. Va sur **https://vercel.com** et connecte-toi
-2. Clique sur ton projet **nord-bati-planning**
-3. Va dans **"Settings"** (onglet en haut)
-4. Dans le menu de gauche, clique sur **"Environment Variables"**
-5. Ajoute une nouvelle variable:
-   - **Name**: `ANTHROPIC_API_KEY`
-   - **Value**: Colle ta clé API (sk-ant-api03-xxxx...)
-   - **Environment**: Coche "Production", "Preview", "Development"
-6. Clique sur **"Save"**
-7. Va dans **"Deployments"** et clique sur **"Redeploy"** sur le dernier déploiement
+1. Va dans **Settings** > **API**
+2. Copie :
+   - **Project URL** (ex: `https://xxxxx.supabase.co`)
+   - **anon public key** (ex: `eyJhbGci...`)
 
----
+#### 2.4. Configurer les variables d'environnement
 
-## 💬 Exemples de commandes vocales/texte
+Crée un fichier `.env.local` à la racine :
 
-L'IA comprend maintenant le langage naturel ! Tu peux dire:
+```env
+VITE_SUPABASE_URL=https://xxxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGci...
+```
 
-**Créer un chantier:**
-- "Crée un chantier Durand à Lille"
-- "Nouveau projet rénovation Lefebvre rue de la Gare"
+### 3. Configuration Vercel (pour le déploiement)
 
-**Ajouter des lots:**
-- "Ajoute un lot démolition sur le chantier Dupont du 15 au 28 janvier"
-- "Mets de l'électricité sur Durand pendant 2 semaines avec l'équipe d'Erwan"
+Dans les **Environment Variables** de ton projet Vercel, ajoute :
 
-**Modifier des lots:**
-- "Décale la couverture sur Dupont d'une semaine"
-- "Change l'équipe du placo sur Martin, mets Roger"
-- "Marque la démolition comme terminée sur Dupont"
+| Variable | Valeur |
+|----------|--------|
+| `VITE_SUPABASE_URL` | `https://xxxxx.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | `eyJhbGci...` |
+| `ANTHROPIC_API_KEY` | `sk-ant-...` |
 
-**Informations:**
-- "Qu'est-ce qu'on a aujourd'hui ?"
+### 4. Lancer en développement
+
+```bash
+npm run dev
+```
+
+L'application sera disponible sur `http://localhost:5173`
+
+## 📊 Structure de la base de données
+
+```
+chantiers
+├── id (BIGSERIAL)
+├── nom (TEXT)
+├── adresse (TEXT)
+├── client (TEXT)
+├── telephone (TEXT)
+├── type (TEXT: 'TCE' | 'Partiel')
+├── notes (TEXT)
+├── statut (TEXT: 'planifie' | 'en_cours' | 'termine' | 'annule')
+└── timestamps
+
+lots
+├── id (BIGSERIAL)
+├── chantier_id (FK -> chantiers)
+├── corps (TEXT)
+├── date_debut (DATE)
+├── date_fin (DATE)
+├── equipe_id (INTEGER)
+├── statut (TEXT)
+└── timestamps
+
+documents
+├── id (BIGSERIAL)
+├── chantier_id (FK -> chantiers)
+├── nom (TEXT)
+├── type (TEXT)
+├── url (TEXT)
+└── date_ajout
+
+taches_livreur
+├── id (BIGSERIAL)
+├── description (TEXT)
+├── date (DATE)
+├── fait (BOOLEAN)
+└── timestamps
+
+instructions_utilisateur
+├── id (BIGSERIAL)
+├── texte (TEXT)
+├── active (BOOLEAN)
+└── created_at
+
+rappels_valides
+├── id (TEXT PRIMARY KEY)
+└── validated_at
+```
+
+## 🎙️ Commandes vocales / texte
+
+L'assistant IA comprend des commandes naturelles :
+
+- "Crée un nouveau chantier Dupont à Tourcoing"
+- "Ajoute la maçonnerie du 15 au 30 janvier"
 - "Montre-moi le planning"
-- "Qui est dispo la semaine prochaine ?"
-- "C'est quoi l'équipe Placo 1 ?"
+- "Démol 1 commence la démolition lundi"
+- "À partir de maintenant, mets toujours 2 semaines par lot"
 
-**Livreur:**
-- "Ajoute une tâche pour Alex: livrer le sable chez Dupont demain"
-
----
-
-## 💰 Coût de l'API
-
-- ~3€ pour 1 million de tokens
-- En usage normal: **5-15€/mois** environ
-- Tu peux suivre ta consommation sur https://console.anthropic.com
-
----
-
-## 📁 Structure du projet
+## 🔧 Architecture des fichiers
 
 ```
 nord-bati-ia/
-├── api/
-│   └── interpret.js    <- Fonction qui appelle Claude
 ├── src/
-│   ├── App.jsx         <- Application React
-│   └── main.jsx
-├── public/
-│   └── favicon.svg
-├── index.html
+│   ├── App.jsx              # Application React principale
+│   ├── main.jsx             # Point d'entrée
+│   ├── supabaseClient.js    # Client + services CRUD Supabase
+│   └── useSupabaseData.js   # Hook de synchronisation données
+├── api/
+│   └── interpret.js         # API serverless Claude
+├── supabase-schema.sql      # Schéma SQL complet
+├── .env.example             # Template variables d'environnement
 ├── package.json
-├── vercel.json
-└── README.md
+├── vite.config.js
+└── vercel.json
 ```
 
----
+## ⚡ Fonctionnalités
 
-Développé pour Nord Bati Construction 🏗️
+### Implémentées ✅
+- Vue "Aujourd'hui" avec lots du jour
+- Vue Planning (Gantt 2 semaines)
+- Vue par chantier avec documents
+- Vue par équipe
+- Planning Alex (livreur)
+- Assistant IA vocal et texte
+- Mémoire conversationnelle (20 messages)
+- Instructions utilisateur persistantes
+- Rappels automatiques (voirie, Consuel, Qualigaz)
+- **Persistance Supabase** avec sync temps réel
+
+### Prochaines évolutions 🔮
+- Authentification utilisateurs
+- Notifications push / email
+- Export PDF des plannings
+- Upload réel des documents
+- Mode hors-ligne (Service Worker)
+- Application mobile (React Native / PWA)
+
+## 📄 License
+
+Propriétaire - Nord Bati Construction
