@@ -440,7 +440,8 @@ export default function NordBatiPlanning() {
   const [iaConnected, setIaConnected] = useState(true);
   const [conversationHistory, setConversationHistory] = useState([]);
   const [currentChantierContext, setCurrentChantierContext] = useState(null);
-  const [sessionActions, setSessionActions] = useState([]); // Historique de TOUT ce qu'on a fait dans la session
+  const [sessionActions, setSessionActions] = useState([]);
+  const [userInstructions, setUserInstructions] = useState([]); // Instructions dynamiques données par l'utilisateur
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
@@ -545,8 +546,8 @@ export default function NordBatiPlanning() {
       tachesLivreur: tachesLivreur,
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message })),
       chantierCourant: currentChantierContext,
-      // Résumé de tout ce qu'on a fait dans cette session
-      historiqueSession: sessionActions
+      historiqueSession: sessionActions,
+      instructionsUtilisateur: userInstructions // Les instructions données par l'utilisateur
     };
     
     // Historique complet de la conversation (max 20 messages)
@@ -577,7 +578,7 @@ export default function NordBatiPlanning() {
       ].slice(-20));
       
       // Ajouter à l'historique des actions si c'est une vraie action
-      if (resultat.action && resultat.action !== 'info' && resultat.action !== 'question') {
+      if (resultat.action && !['info', 'question', 'ajouter_instruction', 'supprimer_instruction'].includes(resultat.action)) {
         setSessionActions(prev => [...prev, {
           action: resultat.action,
           details: resultat.message,
@@ -595,7 +596,7 @@ export default function NordBatiPlanning() {
         message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
       };
     }
-  }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext, sessionActions]);
+  }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext, sessionActions, userInstructions]);
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -618,8 +619,34 @@ export default function NordBatiPlanning() {
           notes: '',
           statut: 'planifie'
         };
+        
+        // Si lotsAuto est demandé, créer tous les lots TCE automatiquement
+        if (params.lotsAuto) {
+          const lotsTCE = [
+            'Démolition', 'Maçonnerie', 'Couverture', 'Charpente', 'Placo',
+            'Électricité', 'Plomberie', 'Chauffage', 'Menuiseries ext.',
+            'Faïence', 'Façade', 'Peinture', 'Enduit', 'Nettoyage'
+          ];
+          const today = new Date();
+          let currentDate = new Date(today);
+          
+          lotsTCE.forEach(corps => {
+            const dateDebut = currentDate.toISOString().split('T')[0];
+            currentDate.setDate(currentDate.getDate() + 14); // 2 semaines par lot
+            const dateFin = currentDate.toISOString().split('T')[0];
+            currentDate.setDate(currentDate.getDate() + 1); // Jour suivant pour le prochain lot
+            
+            nouveau.lots.push({
+              corps,
+              dateDebut,
+              dateFin,
+              equipeId: null,
+              statut: 'planifie'
+            });
+          });
+        }
+        
         setChantiers(prev => [...prev, nouveau]);
-        // Mettre à jour le contexte: on parle maintenant de ce chantier
         setCurrentChantierContext({ id: nouveau.id, nom: nouveau.nom });
         break;
       }
@@ -723,6 +750,29 @@ export default function NordBatiPlanning() {
       case 'valider_rappel': {
         if (params.rappelId) {
           setRappelsValides(prev => new Set([...prev, params.rappelId]));
+        }
+        break;
+      }
+      
+      case 'ajouter_instruction': {
+        // L'utilisateur a donné une nouvelle instruction de comportement
+        if (params.instruction) {
+          setUserInstructions(prev => [...prev, {
+            id: Date.now(),
+            texte: params.instruction,
+            dateAjout: new Date().toISOString()
+          }]);
+        }
+        break;
+      }
+      
+      case 'supprimer_instruction': {
+        // L'utilisateur veut annuler une instruction
+        if (params.instructionId) {
+          setUserInstructions(prev => prev.filter(i => i.id !== params.instructionId));
+        } else if (params.toutes) {
+          // Supprimer toutes les instructions
+          setUserInstructions([]);
         }
         break;
       }
@@ -1114,9 +1164,19 @@ export default function NordBatiPlanning() {
                   📍 {currentChantierContext.nom}
                 </span>
               )}
+              {userInstructions.length > 0 && (
+                <span style={{ color: '#22c55e', fontWeight: '600', fontSize: '0.55rem' }}>
+                  🎯 {userInstructions.length} règle{userInstructions.length > 1 ? 's' : ''} active{userInstructions.length > 1 ? 's' : ''}
+                </span>
+              )}
               {conversationHistory.length > 0 && (
                 <button
-                  onClick={() => { setConversationHistory([]); setCurrentChantierContext(null); setSessionActions([]); }}
+                  onClick={() => { 
+                    setConversationHistory([]); 
+                    setCurrentChantierContext(null); 
+                    setSessionActions([]); 
+                    // Note: on garde les instructions utilisateur, elles persistent
+                  }}
                   style={{
                     padding: '0.2rem 0.4rem',
                     background: 'rgba(255,255,255,0.1)',
