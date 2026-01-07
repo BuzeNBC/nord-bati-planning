@@ -805,8 +805,20 @@ export default function NordBatiPlanning() {
     setIsProcessing(true);
     setTranscript('');
     
+    // DEBUG VISIBLE
+    const debugHistorique = conversationHistoryRef.current;
+    const debugChantier = currentChantierContextRef.current;
+    console.log('🔴 TRAITEMENT:', texte);
+    console.log('🔴 Historique avant appel:', debugHistorique.length, 'messages');
+    console.log('🔴 Chantier courant:', debugChantier?.nom || 'aucun');
+    
     try {
       const resultat = await appelAPI(texte);
+      
+      // DEBUG: Voir ce qui revient
+      console.log('🟢 RÉPONSE:', resultat.message);
+      console.log('🟢 Actions:', resultat.actions?.length || 0);
+      console.log('🟢 Historique après appel:', conversationHistoryRef.current.length, 'messages');
       
       // Afficher le message de l'IA
       setIaResponse(resultat.message || "");
@@ -823,6 +835,7 @@ export default function NordBatiPlanning() {
         }]);
       }
     } catch (error) {
+      console.error('🔴 ERREUR:', error);
       setIaResponse("Erreur lors du traitement de la commande.");
     }
     
@@ -1176,47 +1189,74 @@ export default function NordBatiPlanning() {
               background: 'rgba(0,0,0,0.2)',
               borderRadius: '4px',
               display: 'flex',
+              flexWrap: 'wrap',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: 'center',
+              gap: '0.3rem'
             }}>
-              <span>💡 Parle naturellement, je me souviens de la conversation</span>
+              <span>💡 Je me souviens de la conversation</span>
+              <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+                {conversationHistory.length > 0 && (
+                  <span style={{ color: '#3b82f6', fontSize: '0.5rem' }}>
+                    💬{conversationHistory.length}
+                  </span>
+                )}
+                {currentChantierContext && (
+                  <span style={{ color: '#ff6b35', fontWeight: '600' }}>
+                    📍{currentChantierContext.nom}
+                  </span>
+                )}
+                {userInstructions.length > 0 && (
+                  <span style={{ color: '#22c55e', fontWeight: '600', fontSize: '0.55rem' }}>
+                    🎯{userInstructions.length}
+                  </span>
+                )}
+                {conversationHistory.length > 0 && (
+                  <button
+                    onClick={() => { 
+                      setConversationHistory([]); 
+                      conversationHistoryRef.current = [];
+                      setCurrentChantierContext(null); 
+                      currentChantierContextRef.current = null;
+                      setSessionActions([]); 
+                    }}
+                    style={{
+                      padding: '0.15rem 0.3rem',
+                      background: 'rgba(255,100,100,0.2)',
+                      border: 'none',
+                      borderRadius: '3px',
+                      color: '#f87171',
+                      cursor: 'pointer',
+                      fontSize: '0.5rem'
+                    }}
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            {/* DEBUG - Historique visible */}
+            <div style={{ 
+              marginTop: '0.5rem', 
+              padding: '0.5rem', 
+              background: '#1e40af', 
+              borderRadius: '6px',
+              fontSize: '0.6rem',
+              color: 'white',
+              border: '2px solid yellow'
+            }}>
+              <strong>🔍 DEBUG MÉMOIRE:</strong><br/>
+              Historique: <strong>{conversationHistory.length}</strong> messages<br/>
+              Chantier: <strong>{currentChantierContext?.nom || 'aucun'}</strong><br/>
               {conversationHistory.length > 0 && (
-                <span style={{ color: '#3b82f6', fontSize: '0.5rem' }}>
-                  💬 {conversationHistory.length} msg
-                </span>
-              )}
-              {currentChantierContext && (
-                <span style={{ color: '#ff6b35', fontWeight: '600' }}>
-                  📍 {currentChantierContext.nom}
-                </span>
-              )}
-              {userInstructions.length > 0 && (
-                <span style={{ color: '#22c55e', fontWeight: '600', fontSize: '0.55rem' }}>
-                  🎯 {userInstructions.length} règle{userInstructions.length > 1 ? 's' : ''}
-                </span>
-              )}
-              {conversationHistory.length > 0 && (
-                <button
-                  onClick={() => { 
-                    setConversationHistory([]); 
-                    conversationHistoryRef.current = [];
-                    setCurrentChantierContext(null); 
-                    currentChantierContextRef.current = null;
-                    setSessionActions([]); 
-                    // Note: on garde les instructions utilisateur, elles persistent
-                  }}
-                  style={{
-                    padding: '0.2rem 0.4rem',
-                    background: 'rgba(255,255,255,0.1)',
-                    border: 'none',
-                    borderRadius: '3px',
-                    color: '#94a3b8',
-                    cursor: 'pointer',
-                    fontSize: '0.55rem'
-                  }}
-                >
-                  Nouvelle conv.
-                </button>
+                <div style={{ marginTop: '0.3rem', background: 'rgba(0,0,0,0.3)', padding: '0.3rem', borderRadius: '4px' }}>
+                  {conversationHistory.slice(-4).map((m, i) => (
+                    <div key={i} style={{ marginBottom: '2px', borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+                      <strong>{m.role === 'user' ? '👤' : '🤖'}:</strong> {(m.content || '').substring(0, 60)}...
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
