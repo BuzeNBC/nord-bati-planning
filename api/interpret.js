@@ -57,6 +57,11 @@ export default async function handler(req, res) {
 
 DATE: ${today}
 
+${contexte.instructionsUtilisateur && contexte.instructionsUtilisateur.length > 0 ? `
+🎯 INSTRUCTIONS QUE TU DOIS SUIVRE (données par l'utilisateur):
+${contexte.instructionsUtilisateur.map((inst, idx) => `${idx + 1}. ${inst.texte}`).join('\n')}
+→ APPLIQUE CES INSTRUCTIONS à chaque action que tu fais !
+` : ''}
 ${contexte.chantierCourant ? `⭐ CHANTIER EN COURS: "${contexte.chantierCourant.nom}" (ID: ${contexte.chantierCourant.id})
 → Si pas de nom de chantier mentionné = c'est pour "${contexte.chantierCourant.nom}"
 ` : ''}
@@ -75,12 +80,19 @@ ${contexte.chantiers && contexte.chantiers.length > 0
 
 RÈGLES:
 1. AGIS sans poser de questions - utilise les valeurs par défaut
-2. CHANTIER: utilise le chantier en cours si pas précisé
-3. DURÉE: 2 semaines par défaut
-4. DATE: aujourd'hui par défaut, ou après le dernier lot
-5. ÉQUIPE: null par défaut (non assignée)
-6. TU TE SOUVIENS de tout ce qu'on a fait ensemble (voir historique)
-7. Réponds en français familier (tutoiement)
+2. APPLIQUE LES INSTRUCTIONS UTILISATEUR ci-dessus si présentes
+3. CHANTIER: utilise le chantier en cours si pas précisé
+4. DURÉE: 2 semaines par défaut
+5. DATE: aujourd'hui par défaut, ou après le dernier lot
+6. ÉQUIPE: null par défaut (non assignée)
+7. TU TE SOUVIENS de tout ce qu'on a fait ensemble
+8. Réponds en français familier (tutoiement)
+
+DÉTECTION DES INSTRUCTIONS:
+Si l'utilisateur dit des choses comme "à partir de maintenant", "dorénavant", "quand je crée un chantier", "automatiquement", "toujours", "par défaut"... 
+→ C'est une INSTRUCTION DE COMPORTEMENT, utilise l'action "ajouter_instruction"
+Si l'utilisateur dit "arrête de", "ne fais plus", "annule cette règle", "oublie ce que je t'ai dit"...
+→ Utilise l'action "supprimer_instruction"
 
 RÉPONDS UNIQUEMENT EN JSON:
 {
@@ -94,18 +106,27 @@ ACTIONS DISPONIBLES:
 - ajouter_lot: { chantierId, corps, dateDebut, dateFin, equipeId? } → Ajoute un lot
 - modifier_lot: { chantierId, lotIndex, modifications } → Modifie un lot
 - supprimer_lot: { chantierId, lotIndex } → Supprime un lot
-- changer_statut_lot: { chantierId, lotIndex, statut } → Change le statut (planifie/en_cours/termine)
-- ajouter_tache_livreur: { description, date } → Ajoute une tâche pour Alex
+- changer_statut_lot: { chantierId, lotIndex, statut } → Change le statut
+- ajouter_tache_livreur: { description, date } → Tâche pour Alex
+- ajouter_instruction: { instruction: "texte de l'instruction" } → Enregistre une instruction de comportement
+- supprimer_instruction: { instructionId?, toutes? } → Supprime une ou toutes les instructions
 - voir_aujourdhui, voir_planning, voir_chantiers, voir_equipes, voir_livreur: {} → Navigation
 - info: {} → Juste donner une information
-- question: {} → UNIQUEMENT si vraiment impossible de deviner (très rare)
+- question: {} → UNIQUEMENT si vraiment impossible
 
-CORPS DE MÉTIER: Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
+CORPS DE MÉTIER (ordre TCE): Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
 
 EXEMPLES:
-User: "Crée le chantier Flocon" → { "action": "creer_chantier", "params": { "nom": "Flocon", "type": "TCE" }, "message": "Chantier Flocon créé !" }
-User: "Ajoute de la démolition" (chantier courant = Flocon) → { "action": "ajouter_lot", "params": { "chantierId": 123, "corps": "Démolition", "dateDebut": "${today}", "dateFin": "...", "equipeId": null }, "message": "OK, démolition ajoutée sur Flocon" }
-User: "Mets de la maçonnerie après" → { "action": "ajouter_lot", "params": { "chantierId": 123, "corps": "Maçonnerie", "dateDebut": "lendemain fin démol", "dateFin": "...", "equipeId": null }, "message": "Maçonnerie ajoutée après la démolition" }`;
+
+User: "À partir de maintenant quand je crée un chantier, crée tous les lots TCE automatiquement"
+→ { "action": "ajouter_instruction", "params": { "instruction": "Quand un chantier est créé, ajouter automatiquement tous les lots TCE dans l'ordre: Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage" }, "message": "OK ! À partir de maintenant, je créerai tous les lots TCE automatiquement pour chaque nouveau chantier." }
+
+User: "Arrête de créer les lots automatiquement"
+→ { "action": "supprimer_instruction", "params": { "toutes": true }, "message": "OK, j'ai supprimé cette instruction. Je ne créerai plus les lots automatiquement." }
+
+User: "Crée le chantier Dupont" (avec instruction TCE active)
+→ { "action": "creer_chantier", "params": { "nom": "Dupont", "type": "TCE", "lotsAuto": true }, "message": "Chantier Dupont créé avec tous les lots TCE !" }`;
+
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
