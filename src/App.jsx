@@ -439,7 +439,8 @@ export default function NordBatiPlanning() {
   const [nouvelleTache, setNouvelleTache] = useState('');
   const [iaConnected, setIaConnected] = useState(true);
   const [conversationHistory, setConversationHistory] = useState([]);
-  const [currentChantierContext, setCurrentChantierContext] = useState(null); // Chantier dont on parle actuellement
+  const [currentChantierContext, setCurrentChantierContext] = useState(null);
+  const [sessionActions, setSessionActions] = useState([]); // Historique de TOUT ce qu'on a fait dans la session
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
@@ -543,11 +544,13 @@ export default function NordBatiPlanning() {
       })),
       tachesLivreur: tachesLivreur,
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message })),
-      chantierCourant: currentChantierContext // Le chantier dont on parle en ce moment
+      chantierCourant: currentChantierContext,
+      // Résumé de tout ce qu'on a fait dans cette session
+      historiqueSession: sessionActions
     };
     
-    // Construire l'historique simplifié (max 10 messages)
-    const historiqueSimple = conversationHistory.slice(-10);
+    // Historique complet de la conversation (max 20 messages)
+    const historiqueComplet = conversationHistory.slice(-20);
     
     try {
       const response = await fetch('/api/interpret', {
@@ -556,7 +559,7 @@ export default function NordBatiPlanning() {
         body: JSON.stringify({ 
           commande, 
           contexte: contexteActuel,
-          historique: historiqueSimple
+          historique: historiqueComplet
         })
       });
       
@@ -566,12 +569,21 @@ export default function NordBatiPlanning() {
       
       const resultat = await response.json();
       
-      // Ajouter à l'historique (garder max 10 messages)
+      // Ajouter à l'historique de conversation
       setConversationHistory(prev => [
         ...prev, 
         { role: 'user', content: commande },
         { role: 'assistant', content: resultat.message }
-      ].slice(-10));
+      ].slice(-20));
+      
+      // Ajouter à l'historique des actions si c'est une vraie action
+      if (resultat.action && resultat.action !== 'info' && resultat.action !== 'question') {
+        setSessionActions(prev => [...prev, {
+          action: resultat.action,
+          details: resultat.message,
+          timestamp: new Date().toISOString()
+        }]);
+      }
       
       return resultat;
     } catch (error) {
@@ -583,7 +595,7 @@ export default function NordBatiPlanning() {
         message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
       };
     }
-  }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext]);
+  }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext, sessionActions]);
   
   // ============================================
   // EXÉCUTION DES ACTIONS
@@ -1104,7 +1116,7 @@ export default function NordBatiPlanning() {
               )}
               {conversationHistory.length > 0 && (
                 <button
-                  onClick={() => { setConversationHistory([]); setCurrentChantierContext(null); }}
+                  onClick={() => { setConversationHistory([]); setCurrentChantierContext(null); setSessionActions([]); }}
                   style={{
                     padding: '0.2rem 0.4rem',
                     background: 'rgba(255,255,255,0.1)',
