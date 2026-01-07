@@ -547,7 +547,7 @@ export default function NordBatiPlanning() {
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message })),
       chantierCourant: currentChantierContext,
       historiqueSession: sessionActions,
-      instructionsUtilisateur: userInstructions // Les instructions données par l'utilisateur
+      instructionsUtilisateur: userInstructions
     };
     
     // Historique complet de la conversation (max 20 messages)
@@ -574,26 +574,17 @@ export default function NordBatiPlanning() {
       setConversationHistory(prev => [
         ...prev, 
         { role: 'user', content: commande },
-        { role: 'assistant', content: resultat.message }
+        { role: 'assistant', content: resultat.message || "OK" }
       ].slice(-20));
       
-      // Ajouter à l'historique des actions si c'est une vraie action
-      if (resultat.action && !['info', 'question', 'ajouter_instruction', 'supprimer_instruction'].includes(resultat.action)) {
-        setSessionActions(prev => [...prev, {
-          action: resultat.action,
-          details: resultat.message,
-          timestamp: new Date().toISOString()
-        }]);
-      }
-      
+      // Retourner le résultat complet (message + actions)
       return resultat;
     } catch (error) {
       console.error('Erreur appel API:', error);
       setIaConnected(false);
       return {
-        action: 'info',
-        params: {},
-        message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel."
+        message: "Erreur de connexion à l'IA. Vérifie que la clé API est configurée dans Vercel.",
+        actions: []
       };
     }
   }, [chantiers, tachesLivreur, rappels, conversationHistory, currentChantierContext, sessionActions, userInstructions]);
@@ -602,9 +593,7 @@ export default function NordBatiPlanning() {
   // EXÉCUTION DES ACTIONS
   // ============================================
   
-  const executerAction = useCallback((resultat) => {
-    const { action, params, message } = resultat;
-    
+  const executerAction = useCallback((action, params) => {
     switch (action) {
       case 'creer_chantier': {
         const nouveau = {
@@ -632,9 +621,9 @@ export default function NordBatiPlanning() {
           
           lotsTCE.forEach(corps => {
             const dateDebut = currentDate.toISOString().split('T')[0];
-            currentDate.setDate(currentDate.getDate() + 14); // 2 semaines par lot
+            currentDate.setDate(currentDate.getDate() + 14);
             const dateFin = currentDate.toISOString().split('T')[0];
-            currentDate.setDate(currentDate.getDate() + 1); // Jour suivant pour le prochain lot
+            currentDate.setDate(currentDate.getDate() + 1);
             
             nouveau.lots.push({
               corps,
@@ -655,7 +644,6 @@ export default function NordBatiPlanning() {
         const chantierId = params.chantierId;
         setChantiers(prev => prev.map(ch => {
           if (ch.id === chantierId) {
-            // Mettre à jour le contexte: on parle de ce chantier
             setCurrentChantierContext({ id: ch.id, nom: ch.nom });
             return {
               ...ch,
@@ -678,7 +666,14 @@ export default function NordBatiPlanning() {
           if (ch.id === params.chantierId) {
             const newLots = [...ch.lots];
             if (newLots[params.lotIndex]) {
-              newLots[params.lotIndex] = { ...newLots[params.lotIndex], ...params.modifications };
+              newLots[params.lotIndex] = { 
+                ...newLots[params.lotIndex], 
+                ...(params.corps && { corps: params.corps }),
+                ...(params.dateDebut && { dateDebut: params.dateDebut }),
+                ...(params.dateFin && { dateFin: params.dateFin }),
+                ...(params.equipeId !== undefined && { equipeId: params.equipeId }),
+                ...(params.statut && { statut: params.statut })
+              };
             }
             return { ...ch, lots: newLots };
           }
@@ -698,20 +693,6 @@ export default function NordBatiPlanning() {
         break;
       }
       
-      case 'changer_statut_lot': {
-        setChantiers(prev => prev.map(ch => {
-          if (ch.id === params.chantierId) {
-            const newLots = [...ch.lots];
-            if (newLots[params.lotIndex]) {
-              newLots[params.lotIndex] = { ...newLots[params.lotIndex], statut: params.statut };
-            }
-            return { ...ch, lots: newLots };
-          }
-          return ch;
-        }));
-        break;
-      }
-      
       case 'ajouter_tache_livreur': {
         setTachesLivreur(prev => [...prev, {
           id: Date.now(),
@@ -722,40 +703,22 @@ export default function NordBatiPlanning() {
         break;
       }
       
-      case 'voir_aujourdhui':
-        setActiveTab('aujourdhui');
-        setSelectedChantier(null);
-        break;
-        
-      case 'voir_planning':
-        setActiveTab('planning');
-        setSelectedChantier(null);
-        break;
-        
-      case 'voir_chantiers':
-        setActiveTab('chantiers');
-        setSelectedChantier(null);
-        break;
-        
-      case 'voir_equipes':
-        setActiveTab('equipes');
-        setSelectedChantier(null);
-        break;
-        
-      case 'voir_livreur':
-        setActiveTab('livreur');
-        setSelectedChantier(null);
-        break;
-        
-      case 'valider_rappel': {
-        if (params.rappelId) {
-          setRappelsValides(prev => new Set([...prev, params.rappelId]));
+      case 'naviguer': {
+        const vueMap = {
+          'aujourdhui': 'aujourdhui',
+          'planning': 'planning',
+          'chantiers': 'chantiers',
+          'equipes': 'equipes',
+          'livreur': 'livreur'
+        };
+        if (vueMap[params.vue]) {
+          setActiveTab(vueMap[params.vue]);
+          setSelectedChantier(null);
         }
         break;
       }
       
-      case 'ajouter_instruction': {
-        // L'utilisateur a donné une nouvelle instruction de comportement
+      case 'memoriser_instruction': {
         if (params.instruction) {
           setUserInstructions(prev => [...prev, {
             id: Date.now(),
@@ -766,25 +729,14 @@ export default function NordBatiPlanning() {
         break;
       }
       
-      case 'supprimer_instruction': {
-        // L'utilisateur veut annuler une instruction
-        if (params.instructionId) {
-          setUserInstructions(prev => prev.filter(i => i.id !== params.instructionId));
-        } else if (params.toutes) {
-          // Supprimer toutes les instructions
-          setUserInstructions([]);
-        }
+      case 'oublier_instructions': {
+        setUserInstructions([]);
         break;
       }
       
-      case 'question':
-      case 'info':
       default:
-        // Rien de spécial
         break;
     }
-    
-    setIaResponse(message);
   }, []);
   
   // ============================================
@@ -793,16 +745,27 @@ export default function NordBatiPlanning() {
   
   const traiterCommande = useCallback(async (texte) => {
     setIsProcessing(true);
-    setTranscript(''); // Effacer le transcript car il va dans l'historique
+    setTranscript('');
     
     try {
       const resultat = await appelAPI(texte);
-      executerAction(resultat);
+      
+      // Afficher le message de l'IA
+      setIaResponse(resultat.message || "");
+      
+      // Exécuter toutes les actions retournées
+      if (resultat.actions && resultat.actions.length > 0) {
+        for (const actionObj of resultat.actions) {
+          executerAction(actionObj.action, actionObj.params);
+        }
+        // Ajouter à l'historique des actions
+        setSessionActions(prev => [...prev, {
+          details: resultat.message,
+          timestamp: new Date().toISOString()
+        }]);
+      }
     } catch (error) {
-      setConversationHistory(prev => [...prev, 
-        { role: 'user', content: texte },
-        { role: 'assistant', content: "Erreur lors du traitement de la commande." }
-      ]);
+      setIaResponse("Erreur lors du traitement de la commande.");
     }
     
     setIsProcessing(false);
