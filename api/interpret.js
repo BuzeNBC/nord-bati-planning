@@ -27,257 +27,85 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Clé API non configurée' });
   }
   
-  // Construire les messages avec l'historique
+  // Construire les messages avec l'historique complet
   let messages = [];
   
-  // Ajouter l'historique de conversation s'il existe
   if (historique && historique.length > 0) {
     for (const msg of historique) {
-      // Pour les messages assistant, on doit simuler une réponse JSON valide
       if (msg.role === 'assistant') {
         messages.push({
           role: 'assistant',
-          content: JSON.stringify({
-            action: 'info',
-            params: {},
-            message: msg.content
-          })
+          content: JSON.stringify({ action: 'info', params: {}, message: msg.content })
         });
       } else {
-        messages.push({
-          role: 'user',
-          content: msg.content
-        });
+        messages.push({ role: 'user', content: msg.content });
       }
     }
   }
   
-  // Ajouter la commande actuelle
-  messages.push({
-    role: 'user',
-    content: commande
-  });
+  messages.push({ role: 'user', content: commande });
   
   // Log pour debug
-  console.log('=== Commande reçue ===');
   console.log('Commande:', commande);
-  console.log('Historique:', historique?.length || 0, 'messages');
-  console.log('Messages envoyés:', messages.length);
-  console.log('Nombre de chantiers:', contexte.chantiers?.length || 0);
-  console.log('Chantiers:', contexte.chantiers?.map(c => c.nom).join(', '));
-  console.log('=====================');
+  console.log('Chantier courant:', contexte.chantierCourant?.nom || 'aucun');
+  console.log('Actions session:', contexte.historiqueSession?.length || 0);
   
-  const systemPrompt = `Tu es l'assistant IA de Nord Bati Construction, une entreprise de rénovation TCE (Tous Corps d'État) en Belgique.
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Construire le prompt système
+  const systemPrompt = `Tu es l'assistant IA de Nord Bati Construction. Tu gères les chantiers et le planning.
 
-RÈGLE D'OR: FAIS L'ACTION, NE POSE PAS DE QUESTIONS !
-- Si une info manque, utilise une valeur par défaut intelligente
-- Ne demande des précisions QUE si c'est absolument impossible de deviner
-- L'utilisateur veut construire son planning progressivement
+DATE: ${today}
 
-${contexte.chantierCourant ? `
-⭐⭐⭐ CHANTIER EN COURS DE DISCUSSION: "${contexte.chantierCourant.nom}" (ID: ${contexte.chantierCourant.id}) ⭐⭐⭐
-→ UTILISE CE CHANTIER si l'utilisateur ne précise pas de nom de chantier !
-→ Exemple: "ajoute de la démolition" = ajouter sur "${contexte.chantierCourant.nom}"
-` : '(Pas de chantier en cours de discussion)'}
-
-VALEURS PAR DÉFAUT:
-- Chantier: "${contexte.chantierCourant?.nom || 'demander si plusieurs chantiers'}" (ID: ${contexte.chantierCourant?.id || 'null'})
-- Durée d'un lot: 2 semaines (14 jours)
-- Date de début: aujourd'hui ou lendemain du dernier lot
-- Équipe: null (non assignée)
-- Type de chantier: "TCE"
-
-AUJOURD'HUI: ${new Date().toISOString().split('T')[0]}
-
-====== CHANTIERS EXISTANTS ======
+${contexte.chantierCourant ? `⭐ CHANTIER EN COURS: "${contexte.chantierCourant.nom}" (ID: ${contexte.chantierCourant.id})
+→ Si pas de nom de chantier mentionné = c'est pour "${contexte.chantierCourant.nom}"
+` : ''}
+${contexte.historiqueSession && contexte.historiqueSession.length > 0 ? `
+📋 CE QU'ON A FAIT ENSEMBLE:
+${contexte.historiqueSession.map(a => `- ${a.details}`).join('\n')}
+` : ''}
+====== CHANTIERS ======
 ${contexte.chantiers && contexte.chantiers.length > 0 
-  ? contexte.chantiers.map(c => `- ID:${c.id} | "${c.nom}" | ${c.adresse || 'Pas d\'adresse'} | ${c.type} | ${c.statut}
-    Lots: ${c.lots && c.lots.length > 0 ? c.lots.map(l => `${l.corps} (${l.dateDebut} → ${l.dateFin}, ${l.statut})`).join(', ') : 'Aucun lot'}`).join('\n')
-  : 'Aucun chantier enregistré'}
-=================================
+  ? contexte.chantiers.map(c => `• "${c.nom}" (ID:${c.id})${c.adresse ? ' - ' + c.adresse : ''}
+  ${c.lots && c.lots.length > 0 ? 'Lots: ' + c.lots.map(l => l.corps + ' (' + l.dateDebut + '→' + l.dateFin + ')').join(', ') : 'Pas de lots'}`).join('\n')
+  : 'Aucun chantier'}
+=======================
 
-====== TÂCHES LIVREUR (Alex) ======
-${contexte.tachesLivreur && contexte.tachesLivreur.length > 0
-  ? contexte.tachesLivreur.map(t => `- ${t.description} | ${t.date} | ${t.fait ? 'Fait' : 'À faire'}`).join('\n')
-  : 'Aucune tâche'}
-===================================
+ÉQUIPES: Démol 1 (id:1), Démol 2 (id:2), Démol 3 (id:3), Maçons 1 (id:4), Maçons 2 (id:5), Couvreurs (id:6), Placo 1 (id:7), Placo 2 (id:8), Placo 3 (id:9), Élec/Plomb 1 (id:10), Élec/Plomb 2 (id:11), Façadiers (id:12), Menuisiers 1 (id:13), Menuisiers 2 (id:14), Faïencier (id:15)
 
-ÉQUIPES DISPONIBLES:
-- Démol 1 (id:1): Marius + Vijai
-- Démol 2 (id:2): Gianni + Laura  
-- Démol 3 (id:3): Jean-Claude Van Damme + Daniel
-- Maçons 1 (id:4): Câlin + Laurent
-- Maçons 2 (id:5): Paul
-- Couvreurs (id:6): Tony + Romain (font aussi charpente)
-- Placo 1 (id:7): David + Peggy
-- Placo 2 (id:8): Roger + Adrien
-- Placo 3 (id:9): Alexeï
-- Élec/Plomb 1 (id:10): Erwan + Mamadou
-- Élec/Plomb 2 (id:11): Patrice + Matisse
-- Façadiers (id:12): Saco + Kamaté
-- Menuisiers 1 (id:13): Jean-Claude + Céline
-- Menuisiers 2 (id:14): Stéphane
-- Faïencier (id:15): Philippe
+RÈGLES:
+1. AGIS sans poser de questions - utilise les valeurs par défaut
+2. CHANTIER: utilise le chantier en cours si pas précisé
+3. DURÉE: 2 semaines par défaut
+4. DATE: aujourd'hui par défaut, ou après le dernier lot
+5. ÉQUIPE: null par défaut (non assignée)
+6. TU TE SOUVIENS de tout ce qu'on a fait ensemble (voir historique)
+7. Réponds en français familier (tutoiement)
 
-POLYVALENTS (dispo en renfort): Momo (id:27), Ludo (id:28), Timothée (id:29)
-LIVREUR: Alex (id:30) - planning séparé avec tâches
+RÉPONDS UNIQUEMENT EN JSON:
+{
+  "action": "ACTION_NAME",
+  "params": { ... },
+  "message": "Réponse naturelle et courte"
+}
+
+ACTIONS DISPONIBLES:
+- creer_chantier: { nom, adresse?, type? } → Crée un chantier
+- ajouter_lot: { chantierId, corps, dateDebut, dateFin, equipeId? } → Ajoute un lot
+- modifier_lot: { chantierId, lotIndex, modifications } → Modifie un lot
+- supprimer_lot: { chantierId, lotIndex } → Supprime un lot
+- changer_statut_lot: { chantierId, lotIndex, statut } → Change le statut (planifie/en_cours/termine)
+- ajouter_tache_livreur: { description, date } → Ajoute une tâche pour Alex
+- voir_aujourdhui, voir_planning, voir_chantiers, voir_equipes, voir_livreur: {} → Navigation
+- info: {} → Juste donner une information
+- question: {} → UNIQUEMENT si vraiment impossible de deviner (très rare)
 
 CORPS DE MÉTIER: Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
 
-IMPORTANT: 
-- Utilise TOUJOURS les chantiers listés ci-dessus comme référence
-- Si l'utilisateur parle d'un chantier, cherche-le dans la liste par son nom (même approximatif)
-- Pour ajouter un lot, tu DOIS utiliser l'ID du chantier existant
-
-TU DOIS RÉPONDRE UNIQUEMENT EN JSON avec cette structure:
-{
-  "action": "nom_action",
-  "params": { ... },
-  "message": "Message à afficher à l'utilisateur"
-}
-
-ACTIONS POSSIBLES:
-
-1. creer_chantier - Créer un nouveau chantier
-{
-  "action": "creer_chantier",
-  "params": {
-    "nom": "Nom du chantier",
-    "adresse": "Adresse si mentionnée",
-    "client": "Nom client si mentionné",
-    "type": "TCE" ou "Partiel"
-  },
-  "message": "Je crée le chantier X..."
-}
-
-2. ajouter_lot - Ajouter un lot à un chantier existant
-{
-  "action": "ajouter_lot",
-  "params": {
-    "chantierId": 123,
-    "corps": "Démolition",
-    "dateDebut": "2025-01-20",
-    "dateFin": "2025-02-03",
-    "equipeId": 1
-  },
-  "message": "J'ajoute le lot démolition..."
-}
-
-3. modifier_lot - Modifier un lot existant
-{
-  "action": "modifier_lot",
-  "params": {
-    "chantierId": 123,
-    "lotIndex": 0,
-    "modifications": { "dateDebut": "2025-01-22", "equipeId": 2 }
-  },
-  "message": "Je modifie le lot..."
-}
-
-4. supprimer_lot - Supprimer un lot
-{
-  "action": "supprimer_lot",
-  "params": { "chantierId": 123, "lotIndex": 0 },
-  "message": "Je supprime le lot..."
-}
-
-5. changer_statut_lot - Changer le statut d'un lot
-{
-  "action": "changer_statut_lot",
-  "params": { "chantierId": 123, "lotIndex": 0, "statut": "en_cours" ou "termine" ou "planifie" },
-  "message": "..."
-}
-
-6. ajouter_tache_livreur - Ajouter une tâche pour Alex
-{
-  "action": "ajouter_tache_livreur",
-  "params": { "description": "Livrer matériaux chantier X", "date": "2025-01-20" },
-  "message": "J'ajoute la tâche pour Alex..."
-}
-
-7. voir_aujourdhui - Afficher la vue aujourd'hui
-{
-  "action": "voir_aujourdhui",
-  "params": {},
-  "message": "Voici ce qui est prévu aujourd'hui..."
-}
-
-8. voir_planning - Afficher le planning
-{
-  "action": "voir_planning", 
-  "params": {},
-  "message": "..."
-}
-
-9. voir_chantiers - Afficher les chantiers
-{
-  "action": "voir_chantiers",
-  "params": {},
-  "message": "..."
-}
-
-10. voir_equipes - Afficher les équipes
-{
-  "action": "voir_equipes",
-  "params": {},
-  "message": "..."
-}
-
-11. voir_livreur - Afficher le planning d'Alex
-{
-  "action": "voir_livreur",
-  "params": {},
-  "message": "..."
-}
-
-12. valider_rappel - Valider un rappel (arrêté voirie fait, consuel demandé, etc.)
-{
-  "action": "valider_rappel",
-  "params": { "rappelId": "xxx" },
-  "message": "..."
-}
-
-13. info - Juste donner une information sans action
-{
-  "action": "info",
-  "params": {},
-  "message": "L'équipe Placo 1 est composée de David et Peggy..."
-}
-
-14. question - UTILISE UNIQUEMENT si tu ne peux vraiment pas deviner (ex: aucun chantier mentionné et plusieurs existent)
-{
-  "action": "question",
-  "params": {},
-  "message": "Sur quel chantier ?"
-}
-
-RÈGLES IMPORTANTES:
-- Réponds TOUJOURS en JSON valide, rien d'autre
-- ÉVITE AU MAXIMUM d'utiliser "question" - préfère AGIR avec des valeurs par défaut
-- Si une date n'est pas précisée, utilise aujourd'hui comme date de début
-- Si une durée n'est pas précisée, utilise 2 semaines (14 jours)
-- Si une équipe n'est pas précisée, mets equipeId: null
-- Les dates doivent être au format YYYY-MM-DD
-- Sois concis dans tes messages
-- Parle en français familier (tutoiement)
-- Si un seul chantier existe et que l'utilisateur parle d'un lot, c'est forcément pour ce chantier
-- Si l'utilisateur dit "ajoute de la démolition" sans préciser le chantier mais qu'il n'y en a qu'un, ajoute-le sur celui-là
-
 EXEMPLES:
-
-"Ajoute de la démolition sur Flocon":
-{
-  "action": "ajouter_lot",
-  "params": { "chantierId": 12345, "corps": "Démolition", "dateDebut": "2025-01-20", "dateFin": "2025-02-03", "equipeId": null },
-  "message": "OK, démolition ajoutée sur Flocon (2 semaines à partir d'aujourd'hui)"
-}
-
-"Crée le chantier Martin":
-{
-  "action": "creer_chantier",
-  "params": { "nom": "Martin", "type": "TCE" },
-  "message": "Chantier Martin créé !"
-}`;
+User: "Crée le chantier Flocon" → { "action": "creer_chantier", "params": { "nom": "Flocon", "type": "TCE" }, "message": "Chantier Flocon créé !" }
+User: "Ajoute de la démolition" (chantier courant = Flocon) → { "action": "ajouter_lot", "params": { "chantierId": 123, "corps": "Démolition", "dateDebut": "${today}", "dateFin": "...", "equipeId": null }, "message": "OK, démolition ajoutée sur Flocon" }
+User: "Mets de la maçonnerie après" → { "action": "ajouter_lot", "params": { "chantierId": 123, "corps": "Maçonnerie", "dateDebut": "lendemain fin démol", "dateFin": "...", "equipeId": null }, "message": "Maçonnerie ajoutée après la démolition" }`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -306,17 +134,10 @@ EXEMPLES:
     
     // Parser le JSON de la réponse
     try {
-      // Nettoyer la réponse (enlever les éventuels backticks markdown)
       let jsonStr = texteReponse.trim();
-      if (jsonStr.startsWith('```json')) {
-        jsonStr = jsonStr.slice(7);
-      }
-      if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.slice(3);
-      }
-      if (jsonStr.endsWith('```')) {
-        jsonStr = jsonStr.slice(0, -3);
-      }
+      if (jsonStr.startsWith('```json')) jsonStr = jsonStr.slice(7);
+      if (jsonStr.startsWith('```')) jsonStr = jsonStr.slice(3);
+      if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
       jsonStr = jsonStr.trim();
       
       const resultat = JSON.parse(jsonStr);
