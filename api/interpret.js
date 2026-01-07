@@ -17,54 +17,74 @@ export default async function handler(req, res) {
   
   const today = new Date().toISOString().split('T')[0];
   
-  // Construire les messages
+  // DEBUG
+  console.log('=== API INTERPRET ===');
+  console.log('Commande:', commande);
+  console.log('Historique reçu:', historique?.length || 0, 'messages');
+  console.log('Chantier courant:', contexte.chantierCourant?.nom || 'aucun');
+  
+  // Construire les messages avec TOUT l'historique
   let messages = [];
+  
+  // Ajouter l'historique de conversation
   if (historique && historique.length > 0) {
+    console.log('Messages historique:');
     for (const msg of historique) {
+      console.log(`  - ${msg.role}: ${msg.content.substring(0, 50)}...`);
       messages.push({ role: msg.role, content: msg.content });
     }
   }
+  
+  // Ajouter le message actuel
   messages.push({ role: 'user', content: commande });
   
-  // Prompt système conversationnel
-  const systemPrompt = `Tu es l'assistant de Busato pour gérer Nord Bati Construction. Tu parles naturellement, comme un vrai collègue.
+  console.log('Total messages envoyés à Claude:', messages.length);
+  console.log('===================');
+  
+  // Prompt système avec contexte clair
+  const systemPrompt = `Tu es l'assistant de Busato pour Nord Bati Construction. Tu parles comme un collègue.
 
 AUJOURD'HUI: ${today}
 
 ${contexte.instructionsUtilisateur?.length > 0 ? `
-🎯 RÈGLES QUE BUSATO T'A DONNÉES:
+🎯 TES RÈGLES PERSONNALISÉES:
 ${contexte.instructionsUtilisateur.map(i => `- ${i.texte}`).join('\n')}
-APPLIQUE CES RÈGLES AUTOMATIQUEMENT.
 ` : ''}
 
-${contexte.chantierCourant ? `📍 On parle du chantier "${contexte.chantierCourant.nom}" (ID: ${contexte.chantierCourant.id})` : ''}
+${contexte.chantierCourant ? `
+📍 CHANTIER EN COURS DE DISCUSSION: "${contexte.chantierCourant.nom}" (ID: ${contexte.chantierCourant.id})
+→ Si Busato ne précise pas de chantier, c'est pour "${contexte.chantierCourant.nom}" !
+` : ''}
 
 ${contexte.historiqueSession?.length > 0 ? `
-Ce qu'on a fait ensemble:
+📋 CE QU'ON A FAIT ENSEMBLE RÉCEMMENT:
 ${contexte.historiqueSession.slice(-5).map(a => `- ${a.details}`).join('\n')}
 ` : ''}
 
-CHANTIERS EXISTANTS:
+CHANTIERS:
 ${contexte.chantiers?.length > 0 
-  ? contexte.chantiers.map(c => `• "${c.nom}" (ID:${c.id})${c.adresse ? ' - ' + c.adresse : ''} - ${c.lots?.length || 0} lots${c.lots?.length > 0 ? ': ' + c.lots.map(l => l.corps).join(', ') : ''}`).join('\n')
-  : 'Aucun chantier pour le moment'}
+  ? contexte.chantiers.map(c => `• "${c.nom}" (ID:${c.id}) - ${c.lots?.length || 0} lots`).join('\n')
+  : 'Aucun chantier'}
 
-ÉQUIPES DISPO: Démol 1 (id:1), Démol 2 (id:2), Démol 3 (id:3), Maçons 1 (id:4), Maçons 2 (id:5), Couvreurs (id:6), Placo 1-3 (id:7-9), Élec/Plomb 1-2 (id:10-11), Façadiers (id:12), Menuisiers 1-2 (id:13-14), Faïencier (id:15)
+ÉQUIPES: Démol 1-3, Maçons 1-2, Couvreurs, Placo 1-3, Élec/Plomb 1-2, Façadiers, Menuisiers 1-2, Faïencier
 
-CORPS DE MÉTIER TCE (dans l'ordre): Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
+CORPS TCE: Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
 
 ---
 
-Tu es un assistant intelligent qui COMPREND le contexte. Tu peux:
-- Discuter naturellement, poser des questions, donner ton avis
-- Retenir ce que Busato te dit (utilise memoriser_instruction)
-- Créer des chantiers, ajouter des lots, gérer le planning
-- Te souvenir de tout ce qu'on a fait ensemble
+IMPORTANT:
+- Tu as accès à TOUT l'historique de la conversation ci-dessus
+- Quand Busato répond à une de tes questions, UTILISE SA RÉPONSE avec le contexte précédent
+- Si tu as demandé "pour quel chantier?" et qu'il répond "Flocon", tu SAIS que c'est pour Flocon
+- UTILISE le chantier en cours (📍) si Busato ne précise pas
 
-Si Busato te dit "à partir de maintenant...", "dorénavant...", "retiens que...", etc. → utilise memoriser_instruction
-Si Busato te dit "oublie ça", "arrête de faire ça", "annule"... → utilise oublier_instructions
+Si Busato dit "à partir de maintenant...", "dorénavant...", "retiens que..." → utilise memoriser_instruction
+Si Busato dit "oublie ça", "arrête", "annule" → utilise oublier_instructions
 
-Parle en français familier, tutoie Busato. Sois concis mais naturel. Tu peux demander des précisions si besoin.`;
+TRÈS IMPORTANT: Réponds TOUJOURS avec un message texte, même quand tu utilises des outils.
+Exemple: Si tu crées un chantier, dis "C'est fait ! J'ai créé le chantier X." en plus d'utiliser l'outil.
+
+Parle naturellement, tutoie Busato. Sois concis.`;
 
   // Définir les outils (tools) que l'IA peut utiliser
   const tools = [
@@ -196,6 +216,9 @@ Parle en français familier, tutoie Busato. Sois concis mais naturel. Tu peux de
     
     const data = await response.json();
     
+    console.log('Réponse Claude stop_reason:', data.stop_reason);
+    console.log('Contenu:', data.content?.map(b => b.type).join(', '));
+    
     // Extraire le texte et les appels d'outils
     let messageTexte = '';
     let actions = [];
@@ -210,6 +233,15 @@ Parle en français familier, tutoie Busato. Sois concis mais naturel. Tu peux de
         });
       }
     }
+    
+    // Si pas de message texte mais des actions, générer un message
+    if (!messageTexte && actions.length > 0) {
+      const actionNames = actions.map(a => a.action).join(', ');
+      messageTexte = `OK, c'est fait ! (${actionNames})`;
+    }
+    
+    console.log('Message final:', messageTexte);
+    console.log('Actions:', actions.length);
     
     // Retourner la réponse avec le message ET les actions
     return res.status(200).json({

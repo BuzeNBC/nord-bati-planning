@@ -532,6 +532,13 @@ export default function NordBatiPlanning() {
   // ============================================
   
   const appelAPI = useCallback(async (commande) => {
+    // Debug
+    console.log('=== ENVOI À L\'IA ===');
+    console.log('Commande:', commande);
+    console.log('Historique:', conversationHistory.length, 'messages');
+    console.log('Chantier courant:', currentChantierContext?.nom || 'aucun');
+    console.log('Instructions:', userInstructions.length);
+    
     // Créer le contexte avec les chantiers actuels
     const contexteActuel = {
       chantiers: chantiers.map(c => ({
@@ -551,7 +558,9 @@ export default function NordBatiPlanning() {
     };
     
     // Historique complet de la conversation (max 20 messages)
+    // On envoie tout l'historique pour que l'IA ait le contexte
     const historiqueComplet = conversationHistory.slice(-20);
+    console.log('Historique envoyé:', historiqueComplet);
     
     try {
       const response = await fetch('/api/interpret', {
@@ -569,15 +578,17 @@ export default function NordBatiPlanning() {
       }
       
       const resultat = await response.json();
+      console.log('Réponse IA:', resultat);
       
-      // Ajouter à l'historique de conversation
-      setConversationHistory(prev => [
-        ...prev, 
+      // Ajouter à l'historique de conversation APRÈS avoir reçu la réponse
+      const newHistory = [
+        ...conversationHistory, 
         { role: 'user', content: commande },
         { role: 'assistant', content: resultat.message || "OK" }
-      ].slice(-20));
+      ].slice(-20);
       
-      // Retourner le résultat complet (message + actions)
+      setConversationHistory(newHistory);
+      
       return resultat;
     } catch (error) {
       console.error('Erreur appel API:', error);
@@ -1122,6 +1133,11 @@ export default function NordBatiPlanning() {
               alignItems: 'center'
             }}>
               <span>💡 Parle naturellement, je me souviens de la conversation</span>
+              {conversationHistory.length > 0 && (
+                <span style={{ color: '#3b82f6', fontSize: '0.5rem' }}>
+                  💬 {conversationHistory.length} msg
+                </span>
+              )}
               {currentChantierContext && (
                 <span style={{ color: '#ff6b35', fontWeight: '600' }}>
                   📍 {currentChantierContext.nom}
@@ -1129,7 +1145,7 @@ export default function NordBatiPlanning() {
               )}
               {userInstructions.length > 0 && (
                 <span style={{ color: '#22c55e', fontWeight: '600', fontSize: '0.55rem' }}>
-                  🎯 {userInstructions.length} règle{userInstructions.length > 1 ? 's' : ''} active{userInstructions.length > 1 ? 's' : ''}
+                  🎯 {userInstructions.length} règle{userInstructions.length > 1 ? 's' : ''}
                 </span>
               )}
               {conversationHistory.length > 0 && (
