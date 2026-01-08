@@ -462,6 +462,10 @@ export default function NordBatiPlanning() {
   const [showAddDocument, setShowAddDocument] = useState(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [newDocument, setNewDocument] = useState({ nom: '', type: 'plan' });
+  const [showEditChantier, setShowEditChantier] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showNewChantier, setShowNewChantier] = useState(false);
+  const [editChantierForm, setEditChantierForm] = useState({});
   const [viewStartDate, setViewStartDate] = useState(() => {
     const today = new Date();
     const day = today.getDay();
@@ -576,6 +580,21 @@ export default function NordBatiPlanning() {
       };
     }
   }, []);
+  
+  // Initialiser le formulaire d'édition quand on ouvre la modal
+  useEffect(() => {
+    if (showEditChantier && selectedChantier) {
+      setEditChantierForm({
+        nom: selectedChantier.nom || '',
+        adresse: selectedChantier.adresse || '',
+        client: selectedChantier.client || '',
+        telephone: selectedChantier.telephone || '',
+        type: selectedChantier.type || 'TCE',
+        notes: selectedChantier.notes || '',
+        statut: selectedChantier.statut || 'planifie'
+      });
+    }
+  }, [showEditChantier, selectedChantier]);
   
   // ============================================
   // APPEL API CLAUDE
@@ -1081,6 +1100,59 @@ export default function NordBatiPlanning() {
       await supprimerDocumentDB(chantierId, docId);
     } catch (err) {
       console.error('Erreur suppression document:', err);
+    }
+  };
+  
+  // Sauvegarder les modifications d'un chantier
+  const sauvegarderChantier = async () => {
+    if (!selectedChantier || !editChantierForm.nom.trim()) return;
+    
+    try {
+      await modifierChantier(selectedChantier.id, editChantierForm);
+      
+      // Mettre à jour le chantier sélectionné
+      setSelectedChantier(prev => ({ ...prev, ...editChantierForm }));
+      setShowEditChantier(false);
+    } catch (err) {
+      console.error('Erreur modification chantier:', err);
+      alert('Erreur lors de la sauvegarde');
+    }
+  };
+  
+  // Créer un nouveau chantier
+  const creerNouveauChantier = async () => {
+    if (!editChantierForm.nom?.trim()) return;
+    
+    try {
+      const nouveau = await creerChantier({
+        nom: editChantierForm.nom,
+        adresse: editChantierForm.adresse || '',
+        client: editChantierForm.client || '',
+        telephone: editChantierForm.telephone || '',
+        type: editChantierForm.type || 'TCE',
+        notes: editChantierForm.notes || '',
+        lotsAuto: editChantierForm.lotsAuto || false
+      });
+      
+      setShowNewChantier(false);
+      setSelectedChantier(nouveau);
+    } catch (err) {
+      console.error('Erreur création chantier:', err);
+      alert('Erreur lors de la création');
+    }
+  };
+  
+  // Supprimer un chantier
+  const confirmerSuppressionChantier = async () => {
+    if (!selectedChantier) return;
+    
+    try {
+      await supprimerChantier(selectedChantier.id);
+      setSelectedChantier(null);
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      console.error('Erreur suppression chantier:', err);
+      alert('Erreur lors de la suppression');
     }
   };
   
@@ -1790,9 +1862,40 @@ export default function NordBatiPlanning() {
           {/* CHANTIERS */}
           {activeTab === 'chantiers' && !selectedChantier && (
             <div>
-              <h2 style={{ margin: '0 0 0.75rem 0', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Icons.Building /> Chantiers ({chantiers.length})
-              </h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Icons.Building /> Chantiers ({chantiers.length})
+                </h2>
+                <button
+                  onClick={() => {
+                    setEditChantierForm({
+                      nom: '',
+                      adresse: '',
+                      client: '',
+                      telephone: '',
+                      type: 'TCE',
+                      notes: '',
+                      statut: 'planifie'
+                    });
+                    setShowNewChantier(true);
+                  }}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: 'linear-gradient(135deg, #ff6b35, #f7931e)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem'
+                  }}
+                >
+                  <Icons.Plus /> Nouveau chantier
+                </button>
+              </div>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                 {chantiers.map(chantier => (
@@ -1852,21 +1955,61 @@ export default function NordBatiPlanning() {
           {/* DÉTAIL CHANTIER */}
           {activeTab === 'chantiers' && selectedChantier && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                <button
-                  onClick={() => setSelectedChantier(null)}
-                  style={{
-                    padding: '0.4rem',
-                    background: 'rgba(255,255,255,0.05)',
-                    border: 'none',
-                    borderRadius: '6px',
-                    color: '#e2e8f0',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Icons.ChevronLeft />
-                </button>
-                <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#ff6b35' }}>{selectedChantier.nom}</h2>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setSelectedChantier(null)}
+                    style={{
+                      padding: '0.4rem',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Icons.ChevronLeft />
+                  </button>
+                  <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#ff6b35' }}>{selectedChantier.nom}</h2>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setShowEditChantier(true)}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      background: 'rgba(59,130,246,0.2)',
+                      border: '1px solid rgba(59,130,246,0.4)',
+                      borderRadius: '6px',
+                      color: '#60a5fa',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.3rem'
+                    }}
+                  >
+                    ✏️ Modifier
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    style={{
+                      padding: '0.4rem 0.8rem',
+                      background: 'rgba(239,68,68,0.2)',
+                      border: '1px solid rgba(239,68,68,0.4)',
+                      borderRadius: '6px',
+                      color: '#f87171',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.3rem'
+                    }}
+                  >
+                    🗑️ Supprimer
+                  </button>
+                </div>
               </div>
               
               {/* Infos générales */}
@@ -1894,6 +2037,12 @@ export default function NordBatiPlanning() {
                     <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '0.2rem' }}>TYPE</div>
                     <div style={{ fontSize: '0.85rem' }}>{selectedChantier.type}</div>
                   </div>
+                  {selectedChantier.notes && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '0.2rem' }}>NOTES</div>
+                      <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap' }}>{selectedChantier.notes}</div>
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -2353,6 +2502,588 @@ export default function NordBatiPlanning() {
             </div>
           )}
         </main>
+        
+        {/* MODAL ÉDITION CHANTIER */}
+        {showEditChantier && selectedChantier && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }} onClick={() => setShowEditChantier(false)}>
+            <div 
+              style={{
+                background: 'linear-gradient(145deg, #1e293b, #0f172a)',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                width: '450px',
+                maxWidth: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                border: '1px solid rgba(255,107,53,0.3)',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#ff6b35' }}>✏️ Modifier le chantier</h3>
+                <button 
+                  onClick={() => setShowEditChantier(false)}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#64748b', 
+                    cursor: 'pointer',
+                    fontSize: '1.25rem',
+                    padding: '0.25rem'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Nom */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    NOM DU CHANTIER *
+                  </label>
+                  <input
+                    type="text"
+                    value={editChantierForm.nom || ''}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, nom: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                    placeholder="Ex: Dupont - Rénovation complète"
+                  />
+                </div>
+                
+                {/* Adresse */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    ADRESSE
+                  </label>
+                  <input
+                    type="text"
+                    value={editChantierForm.adresse || ''}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, adresse: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                    placeholder="Ex: 15 rue de la Paix, 59000 Lille"
+                  />
+                </div>
+                
+                {/* Client + Téléphone */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      CLIENT
+                    </label>
+                    <input
+                      type="text"
+                      value={editChantierForm.client || ''}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, client: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                      placeholder="Nom du client"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      TÉLÉPHONE
+                    </label>
+                    <input
+                      type="tel"
+                      value={editChantierForm.telephone || ''}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, telephone: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                      placeholder="06 12 34 56 78"
+                    />
+                  </div>
+                </div>
+                
+                {/* Type + Statut */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      TYPE
+                    </label>
+                    <select
+                      value={editChantierForm.type || 'TCE'}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, type: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                    >
+                      <option value="TCE">TCE (Tous Corps d'État)</option>
+                      <option value="Partiel">Partiel</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      STATUT
+                    </label>
+                    <select
+                      value={editChantierForm.statut || 'planifie'}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, statut: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                    >
+                      <option value="planifie">📋 Planifié</option>
+                      <option value="en_cours">🔨 En cours</option>
+                      <option value="termine">✅ Terminé</option>
+                      <option value="annule">❌ Annulé</option>
+                    </select>
+                  </div>
+                </div>
+                
+                {/* Notes */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    NOTES
+                  </label>
+                  <textarea
+                    value={editChantierForm.notes || ''}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, notes: e.target.value })}
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem',
+                      resize: 'vertical'
+                    }}
+                    placeholder="Notes, remarques, informations complémentaires..."
+                  />
+                </div>
+                
+                {/* Boutons */}
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    onClick={() => setShowEditChantier(false)}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={sauvegarderChantier}
+                    disabled={!editChantierForm.nom?.trim()}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      background: editChantierForm.nom?.trim() ? 'linear-gradient(135deg, #ff6b35, #f7931e)' : 'rgba(255,255,255,0.1)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: editChantierForm.nom?.trim() ? '#0f172a' : '#64748b',
+                      cursor: editChantierForm.nom?.trim() ? 'pointer' : 'not-allowed',
+                      fontSize: '0.85rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    ✓ Enregistrer
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* MODAL CONFIRMATION SUPPRESSION */}
+        {showDeleteConfirm && selectedChantier && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }} onClick={() => setShowDeleteConfirm(false)}>
+            <div 
+              style={{
+                background: 'linear-gradient(145deg, #1e293b, #0f172a)',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                width: '380px',
+                maxWidth: '100%',
+                border: '1px solid rgba(239,68,68,0.4)',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🗑️</div>
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#f87171' }}>
+                  Supprimer ce chantier ?
+                </h3>
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>
+                  Le chantier <strong style={{ color: '#ff6b35' }}>{selectedChantier.nom}</strong> et tous ses lots seront supprimés définitivement.
+                </p>
+              </div>
+              
+              <div style={{ 
+                background: 'rgba(239,68,68,0.1)', 
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: '8px',
+                padding: '0.75rem',
+                marginBottom: '1.25rem',
+                fontSize: '0.8rem',
+                color: '#fca5a5'
+              }}>
+                ⚠️ Cette action est irréversible !
+              </div>
+              
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  style={{
+                    flex: 1,
+                    padding: '0.7rem',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '6px',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmerSuppressionChantier}
+                  style={{
+                    flex: 1,
+                    padding: '0.7rem',
+                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  🗑️ Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* MODAL NOUVEAU CHANTIER */}
+        {showNewChantier && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }} onClick={() => setShowNewChantier(false)}>
+            <div 
+              style={{
+                background: 'linear-gradient(145deg, #1e293b, #0f172a)',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                width: '450px',
+                maxWidth: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                border: '1px solid rgba(255,107,53,0.3)',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#ff6b35' }}>🏗️ Nouveau chantier</h3>
+                <button 
+                  onClick={() => setShowNewChantier(false)}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#64748b', 
+                    cursor: 'pointer',
+                    fontSize: '1.25rem',
+                    padding: '0.25rem'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Nom */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    NOM DU CHANTIER *
+                  </label>
+                  <input
+                    type="text"
+                    value={editChantierForm.nom || ''}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, nom: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                    placeholder="Ex: Dupont - Rénovation complète"
+                    autoFocus
+                  />
+                </div>
+                
+                {/* Adresse */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    ADRESSE
+                  </label>
+                  <input
+                    type="text"
+                    value={editChantierForm.adresse || ''}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, adresse: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                    placeholder="Ex: 15 rue de la Paix, 59000 Lille"
+                  />
+                </div>
+                
+                {/* Client + Téléphone */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      CLIENT
+                    </label>
+                    <input
+                      type="text"
+                      value={editChantierForm.client || ''}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, client: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                      placeholder="Nom du client"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      TÉLÉPHONE
+                    </label>
+                    <input
+                      type="tel"
+                      value={editChantierForm.telephone || ''}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, telephone: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                      placeholder="06 12 34 56 78"
+                    />
+                  </div>
+                </div>
+                
+                {/* Type */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    TYPE DE CHANTIER
+                  </label>
+                  <select
+                    value={editChantierForm.type || 'TCE'}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, type: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    <option value="TCE">TCE (Tous Corps d'État)</option>
+                    <option value="Partiel">Partiel</option>
+                  </select>
+                </div>
+                
+                {/* Créer les lots automatiquement */}
+                <div style={{
+                  background: 'rgba(255,107,53,0.1)',
+                  border: '1px solid rgba(255,107,53,0.3)',
+                  borderRadius: '8px',
+                  padding: '0.75rem'
+                }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={editChantierForm.lotsAuto || false}
+                      onChange={e => setEditChantierForm({ ...editChantierForm, lotsAuto: e.target.checked })}
+                      style={{ accentColor: '#ff6b35', width: '18px', height: '18px' }}
+                    />
+                    <div>
+                      <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>
+                        Créer tous les lots TCE automatiquement
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                        14 lots : Démolition, Maçonnerie, Couverture, Placo, Électricité...
+                      </div>
+                    </div>
+                  </label>
+                </div>
+                
+                {/* Notes */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    NOTES (optionnel)
+                  </label>
+                  <textarea
+                    value={editChantierForm.notes || ''}
+                    onChange={e => setEditChantierForm({ ...editChantierForm, notes: e.target.value })}
+                    rows={2}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem',
+                      resize: 'vertical'
+                    }}
+                    placeholder="Notes, remarques..."
+                  />
+                </div>
+                
+                {/* Boutons */}
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    onClick={() => setShowNewChantier(false)}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={creerNouveauChantier}
+                    disabled={!editChantierForm.nom?.trim()}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      background: editChantierForm.nom?.trim() ? 'linear-gradient(135deg, #ff6b35, #f7931e)' : 'rgba(255,255,255,0.1)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: editChantierForm.nom?.trim() ? '#0f172a' : '#64748b',
+                      cursor: editChantierForm.nom?.trim() ? 'pointer' : 'not-allowed',
+                      fontSize: '0.85rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    🏗️ Créer le chantier
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
