@@ -157,6 +157,23 @@ export function useSupabaseData() {
     }
   }, []);
   
+  const modifierChantier = useCallback(async (chantierId, updates) => {
+    try {
+      await chantiersService.update(chantierId, updates);
+      
+      // Mettre à jour le state local
+      setChantiers(prev => prev.map(ch => {
+        if (ch.id === chantierId) {
+          return { ...ch, ...updates };
+        }
+        return ch;
+      }));
+    } catch (err) {
+      console.error('Erreur modification chantier:', err);
+      throw err;
+    }
+  }, []);
+  
   const supprimerChantier = useCallback(async (chantierId) => {
     try {
       await chantiersService.delete(chantierId);
@@ -237,6 +254,38 @@ export function useSupabaseData() {
       throw err;
     }
   }, []);
+  
+  const decalerLots = useCallback(async (chantierId, jours, aPartirDe = null) => {
+    try {
+      const chantier = chantiers.find(c => c.id === chantierId);
+      if (!chantier) throw new Error('Chantier non trouvé');
+      
+      // Décaler chaque lot
+      const lotsADecaler = aPartirDe 
+        ? chantier.lots.filter(l => l.dateDebut >= aPartirDe)
+        : chantier.lots;
+      
+      for (const lot of lotsADecaler) {
+        const newDateDebut = new Date(lot.dateDebut);
+        newDateDebut.setDate(newDateDebut.getDate() + jours);
+        
+        const newDateFin = new Date(lot.dateFin);
+        newDateFin.setDate(newDateFin.getDate() + jours);
+        
+        await lotsService.update(lot.id, {
+          dateDebut: newDateDebut.toISOString().split('T')[0],
+          dateFin: newDateFin.toISOString().split('T')[0]
+        });
+      }
+      
+      // Recharger les données
+      const chantiersData = await chantiersService.getAll();
+      setChantiers(chantiersData);
+    } catch (err) {
+      console.error('Erreur décalage lots:', err);
+      throw err;
+    }
+  }, [chantiers]);
 
   // ============================================
   // ACTIONS DOCUMENTS
@@ -305,6 +354,18 @@ export function useSupabaseData() {
       throw err;
     }
   }, [tachesLivreur]);
+  
+  const modifierTacheLivreur = useCallback(async (id, updates) => {
+    try {
+      await tachesLivreurService.update(id, updates);
+      setTachesLivreur(prev => prev.map(t => 
+        t.id === id ? { ...t, ...updates } : t
+      ));
+    } catch (err) {
+      console.error('Erreur modification tache:', err);
+      throw err;
+    }
+  }, []);
   
   const supprimerTacheLivreur = useCallback(async (id) => {
     try {
@@ -377,6 +438,7 @@ export function useSupabaseData() {
     
     // Actions chantiers
     creerChantier,
+    modifierChantier,
     supprimerChantier,
     setChantiers,
     
@@ -384,6 +446,7 @@ export function useSupabaseData() {
     ajouterLot,
     modifierLot,
     supprimerLot,
+    decalerLots,
     
     // Actions documents
     ajouterDocument,
@@ -392,6 +455,7 @@ export function useSupabaseData() {
     // Actions taches livreur
     ajouterTacheLivreur,
     toggleTacheLivreur,
+    modifierTacheLivreur,
     supprimerTacheLivreur,
     setTachesLivreur,
     

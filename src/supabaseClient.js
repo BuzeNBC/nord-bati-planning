@@ -120,23 +120,28 @@ export const chantiersService = {
 
   // Mettre à jour un chantier
   async update(id, updates) {
-    const { error } = await supabase
+    const updateData = {};
+    if (updates.nom !== undefined) updateData.nom = updates.nom;
+    if (updates.adresse !== undefined) updateData.adresse = updates.adresse;
+    if (updates.client !== undefined) updateData.client = updates.client;
+    if (updates.telephone !== undefined) updateData.telephone = updates.telephone;
+    if (updates.type !== undefined) updateData.type = updates.type;
+    if (updates.notes !== undefined) updateData.notes = updates.notes;
+    if (updates.statut !== undefined) updateData.statut = updates.statut;
+    
+    const { data, error } = await supabase
       .from('chantiers')
-      .update({
-        nom: updates.nom,
-        adresse: updates.adresse,
-        client: updates.client,
-        telephone: updates.telephone,
-        type: updates.type,
-        notes: updates.notes,
-        statut: updates.statut
-      })
-      .eq('id', id);
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
     
     if (error) {
       console.error('Erreur update chantier:', error);
       throw error;
     }
+    
+    return data;
   },
 
   // Supprimer un chantier (cascade sur lots et documents)

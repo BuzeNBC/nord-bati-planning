@@ -431,13 +431,18 @@ export default function NordBatiPlanning() {
     chantiersRef,
     userInstructionsRef,
     creerChantier,
+    modifierChantier,
+    supprimerChantier,
     ajouterLot,
     modifierLot,
     supprimerLot: supprimerLotDB,
+    decalerLots,
     ajouterDocument: ajouterDocumentDB,
     supprimerDocument: supprimerDocumentDB,
     ajouterTacheLivreur: ajouterTacheLivreurDB,
     toggleTacheLivreur,
+    modifierTacheLivreur,
+    supprimerTacheLivreur,
     ajouterInstruction,
     effacerInstructions,
     validerRappel,
@@ -655,6 +660,9 @@ export default function NordBatiPlanning() {
   const executerAction = useCallback(async (action, params) => {
     try {
       switch (action) {
+        // ============================================
+        // ACTIONS CHANTIERS
+        // ============================================
         case 'creer_chantier': {
           const nouveauChantier = await creerChantier({
             nom: params.nom || 'Nouveau chantier',
@@ -671,6 +679,66 @@ export default function NordBatiPlanning() {
           break;
         }
         
+        case 'modifier_chantier': {
+          const updates = {};
+          if (params.nom !== undefined) updates.nom = params.nom;
+          if (params.adresse !== undefined) updates.adresse = params.adresse;
+          if (params.client !== undefined) updates.client = params.client;
+          if (params.telephone !== undefined) updates.telephone = params.telephone;
+          if (params.notes !== undefined) updates.notes = params.notes;
+          if (params.statut !== undefined) updates.statut = params.statut;
+          
+          await modifierChantier(params.chantierId, updates);
+          break;
+        }
+        
+        case 'supprimer_chantier': {
+          if (params.confirmation) {
+            await supprimerChantier(params.chantierId);
+            // Reset le contexte si c'était le chantier courant
+            if (currentChantierContextRef.current?.id === params.chantierId) {
+              setCurrentChantierContext(null);
+              currentChantierContextRef.current = null;
+            }
+            // Reset la sélection si c'était le chantier sélectionné
+            if (selectedChantier?.id === params.chantierId) {
+              setSelectedChantier(null);
+            }
+          }
+          break;
+        }
+        
+        case 'selectionner_chantier': {
+          const chantier = chantiersRef.current.find(c => c.id === params.chantierId);
+          if (chantier) {
+            setSelectedChantier(chantier);
+            setActiveTab('chantiers');
+            const newContext = { id: chantier.id, nom: chantier.nom };
+            setCurrentChantierContext(newContext);
+            currentChantierContextRef.current = newContext;
+          }
+          break;
+        }
+        
+        case 'rechercher_chantier': {
+          // La recherche est gérée côté IA, elle retourne juste les résultats dans le message
+          break;
+        }
+        
+        case 'resume_chantier': {
+          // Le résumé est généré par l'IA dans son message texte
+          const chantier = chantiersRef.current.find(c => c.id === params.chantierId);
+          if (chantier) {
+            const newContext = { id: chantier.id, nom: chantier.nom };
+            setCurrentChantierContext(newContext);
+            currentChantierContextRef.current = newContext;
+          }
+          break;
+        }
+        
+        // ============================================
+        // ACTIONS LOTS
+        // ============================================
         case 'ajouter_lot': {
           const chantierId = params.chantierId;
           const chantier = chantiersRef.current.find(c => c.id === chantierId);
@@ -692,29 +760,49 @@ export default function NordBatiPlanning() {
         
         case 'modifier_lot': {
           const chantier = chantiersRef.current.find(c => c.id === params.chantierId);
-          if (chantier && chantier.lots[params.lotIndex]) {
-            const lotId = chantier.lots[params.lotIndex].id;
-            const updates = {};
-            if (params.corps) updates.corps = params.corps;
-            if (params.dateDebut) updates.dateDebut = params.dateDebut;
-            if (params.dateFin) updates.dateFin = params.dateFin;
-            if (params.equipeId !== undefined) updates.equipeId = params.equipeId;
-            if (params.statut) updates.statut = params.statut;
+          if (chantier) {
+            // Trouver le lot par ID ou par index
+            let lotId = params.lotId;
+            if (!lotId && params.lotIndex !== undefined && chantier.lots[params.lotIndex]) {
+              lotId = chantier.lots[params.lotIndex].id;
+            }
             
-            await modifierLot(params.chantierId, lotId, updates);
+            if (lotId) {
+              const updates = {};
+              if (params.corps) updates.corps = params.corps;
+              if (params.dateDebut) updates.dateDebut = params.dateDebut;
+              if (params.dateFin) updates.dateFin = params.dateFin;
+              if (params.equipeId !== undefined) updates.equipeId = params.equipeId;
+              if (params.statut) updates.statut = params.statut;
+              
+              await modifierLot(params.chantierId, lotId, updates);
+            }
           }
           break;
         }
         
         case 'supprimer_lot': {
           const chantier = chantiersRef.current.find(c => c.id === params.chantierId);
-          if (chantier && chantier.lots[params.lotIndex]) {
-            const lotId = chantier.lots[params.lotIndex].id;
-            await supprimerLotDB(params.chantierId, lotId);
+          if (chantier) {
+            let lotId = params.lotId;
+            if (!lotId && params.lotIndex !== undefined && chantier.lots[params.lotIndex]) {
+              lotId = chantier.lots[params.lotIndex].id;
+            }
+            if (lotId) {
+              await supprimerLotDB(params.chantierId, lotId);
+            }
           }
           break;
         }
         
+        case 'decaler_lots': {
+          await decalerLots(params.chantierId, params.jours, params.aPartirDe);
+          break;
+        }
+        
+        // ============================================
+        // ACTIONS TACHES LIVREUR
+        // ============================================
         case 'ajouter_tache_livreur': {
           await ajouterTacheLivreurDB({
             description: params.description,
@@ -724,6 +812,41 @@ export default function NordBatiPlanning() {
           break;
         }
         
+        case 'modifier_tache_livreur': {
+          const updates = {};
+          if (params.description !== undefined) updates.description = params.description;
+          if (params.date !== undefined) updates.date = params.date;
+          if (params.fait !== undefined) updates.fait = params.fait;
+          
+          await modifierTacheLivreur(params.tacheId, updates);
+          break;
+        }
+        
+        case 'supprimer_tache_livreur': {
+          await supprimerTacheLivreur(params.tacheId);
+          break;
+        }
+        
+        // ============================================
+        // ACTIONS DOCUMENTS
+        // ============================================
+        case 'ajouter_document': {
+          await ajouterDocumentDB(params.chantierId, {
+            nom: params.nom,
+            type: params.type || 'autre',
+            url: ''
+          });
+          break;
+        }
+        
+        case 'supprimer_document': {
+          await supprimerDocumentDB(params.chantierId, params.documentId);
+          break;
+        }
+        
+        // ============================================
+        // ACTIONS NAVIGATION
+        // ============================================
         case 'naviguer': {
           const vueMap = {
             'aujourdhui': 'aujourdhui',
@@ -734,11 +857,45 @@ export default function NordBatiPlanning() {
           };
           if (vueMap[params.vue]) {
             setActiveTab(vueMap[params.vue]);
-            setSelectedChantier(null);
+            if (params.vue !== 'chantiers') {
+              setSelectedChantier(null);
+            }
           }
           break;
         }
         
+        case 'aller_a_date': {
+          if (params.date) {
+            // Calculer le lundi de la semaine contenant cette date
+            const d = new Date(params.date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(d.setDate(diff));
+            setViewStartDate(monday.toISOString().split('T')[0]);
+            setActiveTab('planning');
+          }
+          break;
+        }
+        
+        case 'planning_equipe': {
+          // On pourrait filtrer l'affichage par équipe, pour l'instant on navigue juste vers équipes
+          setActiveTab('equipes');
+          break;
+        }
+        
+        // ============================================
+        // ACTIONS RAPPELS
+        // ============================================
+        case 'valider_rappel': {
+          if (params.rappelId) {
+            await validerRappel(params.rappelId);
+          }
+          break;
+        }
+        
+        // ============================================
+        // ACTIONS MÉMOIRE IA
+        // ============================================
         case 'memoriser_instruction': {
           if (params.instruction) {
             await ajouterInstruction(params.instruction);
@@ -752,12 +909,20 @@ export default function NordBatiPlanning() {
         }
         
         default:
+          console.log('Action non gérée:', action);
           break;
       }
     } catch (error) {
       console.error('Erreur exécution action:', error);
     }
-  }, [creerChantier, ajouterLot, modifierLot, supprimerLotDB, ajouterTacheLivreurDB, ajouterInstruction, effacerInstructions]);
+  }, [
+    creerChantier, modifierChantier, supprimerChantier,
+    ajouterLot, modifierLot, supprimerLotDB, decalerLots,
+    ajouterTacheLivreurDB, modifierTacheLivreur, supprimerTacheLivreur,
+    ajouterDocumentDB, supprimerDocumentDB,
+    validerRappel, ajouterInstruction, effacerInstructions,
+    selectedChantier
+  ]);
   
   // ============================================
   // TRAITEMENT COMMANDE
