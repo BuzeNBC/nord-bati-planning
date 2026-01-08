@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSupabaseData } from './useSupabaseData';
+import PlanningGantt from './PlanningGantt';
 
 // ============================================
 // CONFIGURATION MÉTIER NORD BATI
@@ -1011,6 +1012,39 @@ export default function NordBatiPlanning() {
     setViewStartDate(d.toISOString().split('T')[0]);
   };
   
+  // Décaler un seul lot (pour le drag & drop du Gantt)
+  const decalerUnLot = useCallback(async (chantierId, lotId, jours) => {
+    try {
+      const chantier = chantiersRef.current.find(c => c.id === chantierId);
+      if (!chantier) return;
+      
+      const lot = chantier.lots.find(l => l.id === lotId);
+      if (!lot) return;
+      
+      const newDateDebut = new Date(lot.dateDebut);
+      newDateDebut.setDate(newDateDebut.getDate() + jours);
+      
+      const newDateFin = new Date(lot.dateFin);
+      newDateFin.setDate(newDateFin.getDate() + jours);
+      
+      await modifierLot(chantierId, lotId, {
+        dateDebut: newDateDebut.toISOString().split('T')[0],
+        dateFin: newDateFin.toISOString().split('T')[0]
+      });
+    } catch (err) {
+      console.error('Erreur décalage lot:', err);
+    }
+  }, [modifierLot]);
+  
+  // Modifier un lot depuis le Gantt
+  const modifierLotGantt = useCallback(async (chantierId, lotId, updates) => {
+    try {
+      await modifierLot(chantierId, lotId, updates);
+    } catch (err) {
+      console.error('Erreur modification lot Gantt:', err);
+    }
+  }, [modifierLot]);
+  
   const ajouterTacheLivreurLocal = async () => {
     if (nouvelleTache.trim()) {
       try {
@@ -1740,130 +1774,16 @@ export default function NordBatiPlanning() {
             </div>
           )}
           
-          {/* PLANNING */}
+          {/* PLANNING GANTT AMÉLIORÉ */}
           {activeTab === 'planning' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <h2 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Icons.Calendar /> Planning
-                </h2>
-                <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                  <button onClick={() => naviguerSemaine(-1)} style={{
-                    padding: '0.3rem', background: 'rgba(255,255,255,0.05)', border: 'none',
-                    borderRadius: '4px', color: '#e2e8f0', cursor: 'pointer'
-                  }}>
-                    <Icons.ChevronLeft />
-                  </button>
-                  <span style={{ padding: '0.3rem 0.8rem', background: 'rgba(255,107,53,0.1)', borderRadius: '4px', fontSize: '0.75rem' }}>
-                    S{getWeekNumber(viewStartDate)}-{getWeekNumber(addDays(viewStartDate, 7))}
-                  </span>
-                  <button onClick={() => naviguerSemaine(1)} style={{
-                    padding: '0.3rem', background: 'rgba(255,255,255,0.05)', border: 'none',
-                    borderRadius: '4px', color: '#e2e8f0', cursor: 'pointer'
-                  }}>
-                    <Icons.ChevronRight />
-                  </button>
-                </div>
-              </div>
-              
-              <div style={{
-                background: 'rgba(0,0,0,0.2)',
-                borderRadius: '8px',
-                border: '1px solid rgba(255,255,255,0.06)',
-                overflow: 'hidden',
-                fontSize: '0.65rem'
-              }}>
-                {/* En-tête */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '130px repeat(14, 1fr)',
-                  borderBottom: '1px solid rgba(255,255,255,0.08)'
-                }}>
-                  <div style={{ padding: '0.5rem', background: 'rgba(255,107,53,0.08)', fontWeight: '600' }}>ÉQUIPE</div>
-                  {joursAffiches.map((jour, idx) => {
-                    const d = new Date(jour);
-                    const isWE = isWeekend(jour);
-                    const isTodayDate = isToday(jour);
-                    return (
-                      <div key={jour} style={{
-                        padding: '0.3rem 0.15rem',
-                        textAlign: 'center',
-                        background: isTodayDate ? 'rgba(255,107,53,0.15)' : isWE ? 'rgba(0,0,0,0.2)' : 'rgba(255,107,53,0.05)',
-                        borderLeft: idx === 7 ? '2px solid rgba(255,107,53,0.3)' : 'none'
-                      }}>
-                        <div style={{ color: isTodayDate ? '#ff6b35' : isWE ? '#475569' : '#94a3b8', fontWeight: '600' }}>
-                          {d.toLocaleDateString('fr-FR', { weekday: 'narrow' })}
-                        </div>
-                        <div style={{ color: isTodayDate ? '#ff6b35' : isWE ? '#334155' : '#64748b' }}>{d.getDate()}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-                
-                {/* Lignes équipes */}
-                {equipes.map(equipe => {
-                  const membresNoms = equipe.membres.map(mid => employes.find(e => e.id === mid)?.nom || '').join(', ');
-                  
-                  return (
-                    <div key={equipe.id} style={{
-                      display: 'grid',
-                      gridTemplateColumns: '130px repeat(14, 1fr)',
-                      borderBottom: '1px solid rgba(255,255,255,0.04)'
-                    }}>
-                      <div style={{ padding: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(0,0,0,0.15)' }}>
-                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: equipe.couleur }} />
-                        <div>
-                          <div style={{ fontWeight: '500' }}>{equipe.nom}</div>
-                          <div style={{ color: '#64748b', fontSize: '0.55rem' }}>{membresNoms}</div>
-                        </div>
-                      </div>
-                      
-                      {joursAffiches.map((jour, idx) => {
-                        const isWE = isWeekend(jour);
-                        const isTodayDate = isToday(jour);
-                        
-                        let lotJour = null;
-                        chantiers.forEach(ch => {
-                          ch.lots.forEach(lot => {
-                            if (lot.equipeId === equipe.id && jour >= lot.dateDebut && jour <= lot.dateFin && lot.statut !== 'termine') {
-                              lotJour = { chantier: ch.nom, lot: lot.corps };
-                            }
-                          });
-                        });
-                        
-                        return (
-                          <div key={jour} style={{
-                            padding: '0.1rem',
-                            background: isTodayDate ? 'rgba(255,107,53,0.08)' : isWE ? 'rgba(0,0,0,0.15)' : 'transparent',
-                            borderLeft: idx === 7 ? '2px solid rgba(255,107,53,0.3)' : 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}>
-                            {lotJour && !isWE && (
-                              <div style={{
-                                width: '100%',
-                                height: '22px',
-                                background: `linear-gradient(135deg, ${equipe.couleur}cc, ${equipe.couleur}88)`,
-                                borderRadius: '3px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.5rem',
-                                fontWeight: '600',
-                                color: '#fff',
-                                cursor: 'pointer'
-                              }} title={`${lotJour.chantier} - ${lotJour.lot}`}>
-                                {lotJour.chantier.substring(0, 4)}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
+            <div style={{ height: 'calc(100vh - 140px)' }}>
+              <PlanningGantt
+                chantiers={chantiers}
+                equipes={equipes}
+                employes={employes}
+                onModifierLot={modifierLotGantt}
+                onDecalerLot={decalerUnLot}
+              />
             </div>
           )}
           
