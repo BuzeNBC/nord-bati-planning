@@ -499,7 +499,7 @@ export default function NordBatiPlanning() {
   
   const recognitionRef = useRef(null);
   const finalTranscriptRef = useRef('');
-  const silenceTimerRef = useRef(null);
+  const shouldSendRef = useRef(false); // Pour savoir si on doit envoyer quand on arrête le micro
   const traiterCommandeRef = useRef(null);
   
   // Générer les rappels
@@ -541,37 +541,29 @@ export default function NordBatiPlanning() {
         // Afficher ce qu'on entend en temps réel
         setTranscript(finalTranscriptRef.current + interimTranscript);
         
-        // Reset le timer à chaque nouvelle parole détectée
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        
-        // Attendre 2.5 secondes de silence avant de traiter la commande
-        silenceTimerRef.current = setTimeout(() => {
-          if (finalTranscriptRef.current.trim()) {
-            recognitionRef.current?.stop();
-          }
-        }, 2500); // 2.5 secondes de silence = fin de phrase
+        // PAS de timer automatique - l'utilisateur appuie sur le bouton pour envoyer
       };
       
       recognitionRef.current.onend = () => {
         setIsListening(false);
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         
-        // Traiter la commande si on a du texte
+        // Traiter la commande seulement si shouldSendRef est true
         const textToProcess = finalTranscriptRef.current.trim();
-        if (textToProcess && traiterCommandeRef.current) {
+        if (textToProcess && shouldSendRef.current && traiterCommandeRef.current) {
           traiterCommandeRef.current(textToProcess);
         }
         finalTranscriptRef.current = '';
+        shouldSendRef.current = false;
       };
       
       recognitionRef.current.onerror = (e) => {
         console.error('Erreur reconnaissance vocale:', e);
         setIsListening(false);
         finalTranscriptRef.current = '';
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        shouldSendRef.current = false;
         
         if (e.error === 'no-speech') {
-          setIaResponse('Je n\'ai rien entendu. Réessaie.');
+          // Pas d'erreur affichée, c'est normal si l'utilisateur n'a pas parlé
         } else if (e.error === 'audio-capture') {
           setIaResponse('Problème de micro. Vérifie les autorisations.');
         } else if (e.error !== 'aborted') {
@@ -998,12 +990,13 @@ export default function NordBatiPlanning() {
   
   const toggleListening = () => {
     if (isListening) {
-      // Arrêter l'écoute - ça va déclencher onend qui traitera la commande
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      recognitionRef.current?.stop();
+      // Arrêter l'écoute ET envoyer la commande
+      shouldSendRef.current = true; // Marquer qu'on veut envoyer
+      recognitionRef.current?.stop(); // onend va traiter la commande
     } else {
-      // Réinitialiser
+      // Démarrer l'écoute
       finalTranscriptRef.current = '';
+      shouldSendRef.current = false;
       setTranscript('');
       setIaResponse('');
       try {
@@ -1402,13 +1395,13 @@ export default function NordBatiPlanning() {
               disabled={isProcessing}
               style={{
                 width: '100%',
-                padding: '0.7rem',
+                padding: '0.8rem',
                 background: isListening 
-                  ? 'linear-gradient(135deg, #ff6b35, #f7931e)' 
+                  ? 'linear-gradient(135deg, #22c55e, #16a34a)' 
                   : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${isListening ? '#ff6b35' : 'rgba(255,255,255,0.1)'}`,
+                border: `1px solid ${isListening ? '#22c55e' : 'rgba(255,255,255,0.1)'}`,
                 borderRadius: '8px',
-                color: isListening ? '#0f172a' : '#e2e8f0',
+                color: isListening ? '#fff' : '#e2e8f0',
                 cursor: isProcessing ? 'wait' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -1419,9 +1412,35 @@ export default function NordBatiPlanning() {
                 transition: 'all 0.2s'
               }}
             >
-              <Icons.Mic active={isListening} />
-              {isListening ? '🔴 Parle... (clique pour envoyer)' : isProcessing ? 'Traitement...' : 'Parler'}
+              {isListening ? (
+                <>
+                  <span style={{ 
+                    display: 'inline-block', 
+                    width: '10px', 
+                    height: '10px', 
+                    background: '#ef4444', 
+                    borderRadius: '50%',
+                    animation: 'pulse 1s infinite'
+                  }} />
+                  ✓ ENVOYER
+                </>
+              ) : isProcessing ? (
+                '⏳ Traitement...'
+              ) : (
+                <>
+                  <Icons.Mic active={false} />
+                  🎤 Appuie pour parler
+                </>
+              )}
             </button>
+            
+            {/* Animation du point rouge */}
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.5; transform: scale(1.2); }
+              }
+            `}</style>
             
             <form onSubmit={handleTextSubmit} style={{ marginTop: '0.5rem' }}>
               <input
