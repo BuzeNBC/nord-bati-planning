@@ -438,6 +438,7 @@ export default function NordBatiPlanning() {
     supprimerLot: supprimerLotDB,
     decalerLots,
     ajouterDocument: ajouterDocumentDB,
+    uploadDocument,
     supprimerDocument: supprimerDocumentDB,
     ajouterTacheLivreur: ajouterTacheLivreurDB,
     toggleTacheLivreur,
@@ -458,6 +459,7 @@ export default function NordBatiPlanning() {
   const [activeTab, setActiveTab] = useState('aujourdhui');
   const [selectedChantier, setSelectedChantier] = useState(null);
   const [showAddDocument, setShowAddDocument] = useState(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [newDocument, setNewDocument] = useState({ nom: '', type: 'plan' });
   const [viewStartDate, setViewStartDate] = useState(() => {
     const today = new Date();
@@ -2060,63 +2062,147 @@ export default function NordBatiPlanning() {
                     padding: '0.75rem',
                     background: 'rgba(0,0,0,0.2)',
                     borderRadius: '6px',
-                    marginBottom: '0.6rem',
-                    display: 'flex',
-                    gap: '0.5rem',
-                    alignItems: 'flex-end'
+                    marginBottom: '0.6rem'
                   }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '0.2rem' }}>NOM</div>
-                      <input
-                        type="text"
-                        value={newDocument.nom}
-                        onChange={(e) => setNewDocument({ ...newDocument, nom: e.target.value })}
-                        placeholder="Ex: Plan RDC"
-                        style={{
-                          width: '100%',
-                          padding: '0.5rem',
-                          background: 'rgba(0,0,0,0.3)',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: '4px',
-                          color: '#e2e8f0',
-                          fontSize: '0.8rem'
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '0.2rem' }}>TYPE</div>
-                      <select
-                        value={newDocument.type}
-                        onChange={(e) => setNewDocument({ ...newDocument, type: e.target.value })}
-                        style={{
-                          padding: '0.5rem',
-                          background: 'rgba(0,0,0,0.3)',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: '4px',
-                          color: '#e2e8f0',
-                          fontSize: '0.8rem'
-                        }}
-                      >
-                        {TYPES_DOCUMENTS.map(t => (
-                          <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <button
-                      onClick={() => ajouterDocumentLocal(selectedChantier.id)}
+                    {/* Zone de drop / upload fichier */}
+                    <div 
                       style={{
-                        padding: '0.5rem 0.8rem',
-                        background: '#22c55e',
-                        border: 'none',
-                        borderRadius: '4px',
-                        color: '#fff',
+                        border: '2px dashed rgba(255,107,53,0.4)',
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        textAlign: 'center',
+                        marginBottom: '0.75rem',
                         cursor: 'pointer',
-                        fontSize: '0.8rem',
-                        fontWeight: '600'
+                        background: 'rgba(255,107,53,0.05)',
+                        transition: 'all 0.2s'
+                      }}
+                      onClick={() => document.getElementById('file-upload').click()}
+                      onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.background = 'rgba(255,107,53,0.15)'; }}
+                      onDragLeave={(e) => { e.currentTarget.style.background = 'rgba(255,107,53,0.05)'; }}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.currentTarget.style.background = 'rgba(255,107,53,0.05)';
+                        const file = e.dataTransfer.files[0];
+                        if (file) {
+                          try {
+                            setIsUploadingDoc(true);
+                            await uploadDocument(selectedChantier.id, file);
+                            setShowAddDocument(false);
+                          } catch (err) {
+                            alert('Erreur upload: ' + err.message);
+                          } finally {
+                            setIsUploadingDoc(false);
+                          }
+                        }
                       }}
                     >
-                      OK
-                    </button>
+                      <input
+                        id="file-upload"
+                        type="file"
+                        style={{ display: 'none' }}
+                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.dwg,.dxf"
+                        onChange={async (e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            try {
+                              setIsUploadingDoc(true);
+                              await uploadDocument(selectedChantier.id, file);
+                              setShowAddDocument(false);
+                            } catch (err) {
+                              alert('Erreur upload: ' + err.message);
+                            } finally {
+                              setIsUploadingDoc(false);
+                            }
+                          }
+                          e.target.value = '';
+                        }}
+                      />
+                      {isUploadingDoc ? (
+                        <div style={{ color: '#ff6b35' }}>
+                          ⏳ Upload en cours...
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: '1.5rem', marginBottom: '0.3rem' }}>📤</div>
+                          <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                            Glisse un fichier ici ou <span style={{ color: '#ff6b35', textDecoration: 'underline' }}>clique pour choisir</span>
+                          </div>
+                          <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '0.3rem' }}>
+                            PDF, Images, Word, Excel...
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* OU séparateur */}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '0.5rem',
+                      margin: '0.5rem 0',
+                      color: '#64748b',
+                      fontSize: '0.7rem'
+                    }}>
+                      <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                      <span>OU ajouter une référence</span>
+                      <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                    </div>
+                    
+                    {/* Ajout manuel (référence) */}
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '0.2rem' }}>NOM</div>
+                        <input
+                          type="text"
+                          value={newDocument.nom}
+                          onChange={(e) => setNewDocument({ ...newDocument, nom: e.target.value })}
+                          placeholder="Ex: Plan RDC"
+                          style={{
+                            width: '100%',
+                            padding: '0.5rem',
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '4px',
+                            color: '#e2e8f0',
+                            fontSize: '0.8rem'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '0.2rem' }}>TYPE</div>
+                        <select
+                          value={newDocument.type}
+                          onChange={(e) => setNewDocument({ ...newDocument, type: e.target.value })}
+                          style={{
+                            padding: '0.5rem',
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '4px',
+                            color: '#e2e8f0',
+                            fontSize: '0.8rem'
+                          }}
+                        >
+                          {TYPES_DOCUMENTS.map(t => (
+                            <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => ajouterDocumentLocal(selectedChantier.id)}
+                        style={{
+                          padding: '0.5rem 0.8rem',
+                          background: '#22c55e',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem',
+                          fontWeight: '600'
+                        }}
+                      >
+                        OK
+                      </button>
+                    </div>
                   </div>
                 )}
                 
@@ -2132,12 +2218,32 @@ export default function NordBatiPlanning() {
                         borderRadius: '5px',
                         fontSize: '0.8rem'
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div 
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.5rem',
+                            cursor: doc.url && doc.url !== '#' ? 'pointer' : 'default',
+                            flex: 1
+                          }}
+                          onClick={() => {
+                            if (doc.url && doc.url !== '#') {
+                              window.open(doc.url, '_blank');
+                            }
+                          }}
+                        >
                           <span style={{ fontSize: '1rem' }}>{getDocumentIcon(doc.type)}</span>
                           <div>
-                            <div style={{ fontWeight: '500' }}>{doc.nom}</div>
+                            <div style={{ 
+                              fontWeight: '500',
+                              color: doc.url && doc.url !== '#' ? '#3b82f6' : '#e2e8f0',
+                              textDecoration: doc.url && doc.url !== '#' ? 'underline' : 'none'
+                            }}>
+                              {doc.nom}
+                            </div>
                             <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
                               {TYPES_DOCUMENTS.find(t => t.id === doc.type)?.label}
+                              {doc.url && doc.url !== '#' && ' • 📎 Fichier joint'}
                             </div>
                           </div>
                         </div>

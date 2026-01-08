@@ -126,6 +126,33 @@ CREATE POLICY "Public access instructions" ON instructions_utilisateur FOR ALL U
 CREATE POLICY "Public access rappels" ON rappels_valides FOR ALL USING (true) WITH CHECK (true);
 
 -- ============================================
+-- STORAGE BUCKET POUR LES DOCUMENTS
+-- ============================================
+-- ATTENTION: Ce bloc doit être exécuté SÉPARÉMENT dans l'interface Supabase
+-- Car la création de bucket nécessite des permissions admin
+-- 
+-- Alternative: Créer le bucket manuellement dans Storage > New bucket
+-- Nom: documents
+-- Public: Oui (pour permettre l'accès aux fichiers)
+
+-- Si vous avez accès à l'API admin, décommentez:
+/*
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('documents', 'documents', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Policy pour permettre l'upload public (temporaire)
+CREATE POLICY "Public upload documents" ON storage.objects
+FOR INSERT WITH CHECK (bucket_id = 'documents');
+
+CREATE POLICY "Public read documents" ON storage.objects
+FOR SELECT USING (bucket_id = 'documents');
+
+CREATE POLICY "Public delete documents" ON storage.objects
+FOR DELETE USING (bucket_id = 'documents');
+*/
+
+-- ============================================
 -- DONNÉES DE TEST (optionnel)
 -- ============================================
 

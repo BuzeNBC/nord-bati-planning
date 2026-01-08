@@ -294,6 +294,22 @@ export const documentsService = {
   },
 
   async delete(docId) {
+    // D'abord récupérer le document pour avoir l'URL du fichier
+    const { data: doc } = await supabase
+      .from('documents')
+      .select('url')
+      .eq('id', docId)
+      .single();
+    
+    // Supprimer le fichier du storage si présent
+    if (doc?.url && doc.url.includes('supabase')) {
+      const path = doc.url.split('/documents/')[1];
+      if (path) {
+        await supabase.storage.from('documents').remove([path]);
+      }
+    }
+    
+    // Supprimer l'entrée de la base
     const { error } = await supabase
       .from('documents')
       .delete()
@@ -303,6 +319,53 @@ export const documentsService = {
       console.error('Erreur delete document:', error);
       throw error;
     }
+  },
+  
+  // Upload un fichier vers Supabase Storage
+  async uploadFile(chantierId, file) {
+    // Générer un nom de fichier unique
+    const timestamp = Date.now();
+    const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filePath = `chantier_${chantierId}/${timestamp}_${cleanName}`;
+    
+    // Upload vers Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('documents')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+    
+    if (error) {
+      console.error('Erreur upload fichier:', error);
+      throw error;
+    }
+    
+    // Récupérer l'URL publique
+    const { data: urlData } = supabase.storage
+      .from('documents')
+      .getPublicUrl(filePath);
+    
+    return urlData.publicUrl;
+  },
+  
+  // Déterminer le type de document à partir de l'extension
+  getTypeFromFile(filename) {
+    const ext = filename.toLowerCase().split('.').pop();
+    const typeMap = {
+      'pdf': 'plan',
+      'dwg': 'plan',
+      'dxf': 'plan',
+      'jpg': 'photo',
+      'jpeg': 'photo',
+      'png': 'photo',
+      'heic': 'photo',
+      'doc': 'devis',
+      'docx': 'devis',
+      'xls': 'devis',
+      'xlsx': 'devis'
+    };
+    return typeMap[ext] || 'autre';
   }
 };
 

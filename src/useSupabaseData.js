@@ -309,6 +309,35 @@ export function useSupabaseData() {
     }
   }, []);
   
+  const uploadDocument = useCallback(async (chantierId, file) => {
+    try {
+      // Upload le fichier
+      const url = await documentsService.uploadFile(chantierId, file);
+      
+      // Déterminer le type automatiquement
+      const type = documentsService.getTypeFromFile(file.name);
+      
+      // Créer l'entrée en base
+      const nouveauDoc = await documentsService.create(chantierId, {
+        nom: file.name,
+        type: type,
+        url: url
+      });
+      
+      setChantiers(prev => prev.map(ch => {
+        if (ch.id === chantierId) {
+          return { ...ch, documents: [...(ch.documents || []), nouveauDoc] };
+        }
+        return ch;
+      }));
+      
+      return nouveauDoc;
+    } catch (err) {
+      console.error('Erreur upload document:', err);
+      throw err;
+    }
+  }, []);
+  
   const supprimerDocument = useCallback(async (chantierId, docId) => {
     try {
       await documentsService.delete(docId);
@@ -450,6 +479,7 @@ export function useSupabaseData() {
     
     // Actions documents
     ajouterDocument,
+    uploadDocument,
     supprimerDocument,
     
     // Actions taches livreur
