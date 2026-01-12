@@ -3,6 +3,7 @@
 // ============================================
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
 
 // Icônes
 const Icons = {
@@ -49,6 +50,13 @@ const Icons = {
       <line x1="15" y1="6" x2="15" y2="6.01"/>
       <line x1="9" y1="10" x2="9" y2="10.01"/>
       <line x1="15" y1="10" x2="15" y2="10.01"/>
+    </svg>
+  ),
+  Download: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7,10 12,15 17,10"/>
+      <line x1="12" y1="15" x2="12" y2="3"/>
     </svg>
   )
 };
@@ -140,6 +148,308 @@ export default function PlanningGantt({
       width: Math.max(1, Math.min(duration, config.jours - Math.max(0, startOffset))) * config.cellWidth - 4,
       visible: startOffset + duration > 0 && startOffset < config.jours
     };
+  };
+  
+  // ============================================
+  // EXPORT PDF
+  // ============================================
+  
+  const exporterPDF = useCallback(() => {
+    // Créer le PDF en mode paysage A4
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4'
+    });
+    
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 10;
+    
+    // Couleurs
+    const couleurPrimaire = [255, 107, 53]; // Orange Nord Bati
+    const couleurTexte = [30, 41, 59];
+    const couleurGris = [100, 116, 139];
+    const couleurFond = [241, 245, 249];
+    const couleurWeekend = [226, 232, 240];
+    
+    // ===== EN-TÊTE =====
+    pdf.setFillColor(...couleurPrimaire);
+    pdf.rect(0, 0, pageWidth, 18, 'F');
+    
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('NORD BATI CONSTRUCTION', margin, 8);
+    
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Planning ${viewMode === 'chantier' ? 'par Chantier' : 'par Équipe'}`, margin, 14);
+    
+    // Date du jour à droite
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('fr-FR', { 
+      weekday: 'long', 
+      day: 'numeric', 
+      month: 'long', 
+      year: 'numeric' 
+    });
+    pdf.text(`Généré le ${dateStr}`, pageWidth - margin - 60, 11);
+    
+    // ===== PÉRIODE =====
+    pdf.setTextColor(...couleurTexte);
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'bold');
+    const periodeDebut = formatDateShort(startDate);
+    const periodeFin = formatDateShort(addDays(startDate, config.jours - 1));
+    pdf.text(`Période : ${periodeDebut} → ${periodeFin}`, margin, 26);
+    
+    // ===== CONFIGURATION DU TABLEAU =====
+    const tableTop = 32;
+    const labelWidth = 45;
+    const cellWidth = (pageWidth - margin * 2 - labelWidth) / config.jours;
+    const rowHeight = viewMode === 'chantier' ? 12 : 10;
+    
+    // Préparer les données
+    const rows = viewMode === 'chantier'
+      ? chantiers.map(ch => ({
+          id: ch.id,
+          label: ch.nom,
+          sublabel: ch.client || ch.adresse || '',
+          color: couleurPrimaire,
+          items: ch.lots.map(lot => ({ ...lot, chantier: ch }))
+        }))
+      : equipes.map(eq => {
+          const lots = [];
+          chantiers.forEach(ch => {
+            ch.lots.forEach(lot => {
+              if (lot.equipeId === eq.id) {
+                lots.push({ ...lot, chantier: ch });
+              }
+            });
+          });
+          return {
+            id: eq.id,
+            label: eq.nom,
+            sublabel: '',
+            color: hexToRgb(eq.couleur),
+            items: lots
+          };
+        });
+    
+    // ===== EN-TÊTE DU TABLEAU (JOURS) =====
+    let y = tableTop;
+    
+    // Fond de l'en-tête
+    pdf.setFillColor(...couleurFond);
+    pdf.rect(margin, y, pageWidth - margin * 2, 8, 'F');
+    
+    // Label colonne
+    pdf.setFontSize(7);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(...couleurTexte);
+    pdf.text(viewMode === 'chantier' ? 'CHANTIER' : 'ÉQUIPE', margin + 2, y + 5);
+    
+    // Jours
+    jours.forEach((jour, idx) => {
+      const x = margin + labelWidth + idx * cellWidth;
+      const d = new Date(jour);
+      const isWE = isWeekend(jour);
+      const isToday = jour === getTodayStr();
+      
+      // Fond weekend
+      if (isWE) {
+        pdf.setFillColor(...couleurWeekend);
+        pdf.rect(x, y, cellWidth, 8, 'F');
+      }
+      
+      // Aujourd'hui
+      if (isToday) {
+        pdf.setFillColor(255, 107, 53, 0.3);
+        pdf.rect(x, y, cellWidth, 8, 'F');
+      }
+      
+      // Texte du jour
+      pdf.setFontSize(5);
+      pdf.setTextColor(isWE ? 150 : 80, isWE ? 150 : 80, isWE ? 150 : 80);
+      pdf.text(d.toLocaleDateString('fr-FR', { weekday: 'narrow' }), x + cellWidth/2 - 1, y + 3);
+      pdf.setFontSize(6);
+      pdf.text(d.getDate().toString(), x + cellWidth/2 - 1, y + 7);
+    });
+    
+    y += 8;
+    
+    // ===== LIGNES DU TABLEAU =====
+    rows.forEach((row, rowIdx) => {
+      // Vérifier si on a besoin d'une nouvelle page
+      if (y + rowHeight > pageHeight - margin) {
+        pdf.addPage();
+        y = margin;
+        
+        // Répéter l'en-tête sur la nouvelle page
+        pdf.setFillColor(...couleurFond);
+        pdf.rect(margin, y, pageWidth - margin * 2, 8, 'F');
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(...couleurTexte);
+        pdf.text(viewMode === 'chantier' ? 'CHANTIER' : 'ÉQUIPE', margin + 2, y + 5);
+        
+        jours.forEach((jour, idx) => {
+          const x = margin + labelWidth + idx * cellWidth;
+          const d = new Date(jour);
+          const isWE = isWeekend(jour);
+          if (isWE) {
+            pdf.setFillColor(...couleurWeekend);
+            pdf.rect(x, y, cellWidth, 8, 'F');
+          }
+          pdf.setFontSize(5);
+          pdf.setTextColor(isWE ? 150 : 80, isWE ? 150 : 80, isWE ? 150 : 80);
+          pdf.text(d.toLocaleDateString('fr-FR', { weekday: 'narrow' }), x + cellWidth/2 - 1, y + 3);
+          pdf.setFontSize(6);
+          pdf.text(d.getDate().toString(), x + cellWidth/2 - 1, y + 7);
+        });
+        y += 8;
+      }
+      
+      // Fond alterné
+      if (rowIdx % 2 === 0) {
+        pdf.setFillColor(248, 250, 252);
+        pdf.rect(margin, y, pageWidth - margin * 2, rowHeight, 'F');
+      }
+      
+      // Fond weekends pour cette ligne
+      jours.forEach((jour, idx) => {
+        if (isWeekend(jour)) {
+          const x = margin + labelWidth + idx * cellWidth;
+          pdf.setFillColor(...couleurWeekend);
+          pdf.rect(x, y, cellWidth, rowHeight, 'F');
+        }
+      });
+      
+      // Bordure de ligne
+      pdf.setDrawColor(226, 232, 240);
+      pdf.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
+      
+      // Label (nom du chantier/équipe)
+      pdf.setFillColor(...(row.color || couleurPrimaire));
+      pdf.rect(margin, y, 2, rowHeight, 'F');
+      
+      pdf.setFontSize(7);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...couleurTexte);
+      const labelTrunc = row.label.length > 18 ? row.label.substring(0, 18) + '...' : row.label;
+      pdf.text(labelTrunc, margin + 4, y + rowHeight/2 + 1);
+      
+      if (row.sublabel) {
+        pdf.setFontSize(5);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(...couleurGris);
+        const sublabelTrunc = row.sublabel.length > 22 ? row.sublabel.substring(0, 22) + '...' : row.sublabel;
+        pdf.text(sublabelTrunc, margin + 4, y + rowHeight/2 + 4);
+      }
+      
+      // Barres des lots
+      row.items.forEach((item) => {
+        const lotStartOffset = diffDays(startDate, item.dateDebut);
+        const lotDuration = diffDays(item.dateDebut, item.dateFin) + 1;
+        
+        // Vérifier si le lot est visible
+        if (lotStartOffset + lotDuration <= 0 || lotStartOffset >= config.jours) return;
+        
+        // Calculer position
+        const barStart = Math.max(0, lotStartOffset);
+        const barEnd = Math.min(config.jours, lotStartOffset + lotDuration);
+        const barX = margin + labelWidth + barStart * cellWidth;
+        const barWidth = (barEnd - barStart) * cellWidth - 1;
+        
+        if (barWidth <= 0) return;
+        
+        // Couleur de la barre
+        let barColor = row.color || couleurPrimaire;
+        if (viewMode === 'chantier') {
+          const equipe = equipes.find(e => e.id === item.equipeId);
+          if (equipe) barColor = hexToRgb(equipe.couleur);
+        }
+        
+        // Dessiner la barre
+        pdf.setFillColor(...barColor);
+        pdf.roundedRect(barX + 0.5, y + 2, barWidth - 1, rowHeight - 4, 1, 1, 'F');
+        
+        // Texte dans la barre
+        if (barWidth > 15) {
+          pdf.setFontSize(5);
+          pdf.setFont('helvetica', 'bold');
+          pdf.setTextColor(255, 255, 255);
+          const text = viewMode === 'chantier' ? item.corps : item.chantier.nom;
+          const maxChars = Math.floor(barWidth / 2);
+          const displayText = text.length > maxChars ? text.substring(0, maxChars) + '..' : text;
+          pdf.text(displayText, barX + 2, y + rowHeight/2 + 1);
+        }
+        
+        // Indicateur statut
+        if (item.statut === 'en_cours') {
+          pdf.setFillColor(34, 197, 94);
+          pdf.circle(barX + barWidth - 3, y + rowHeight/2, 1.5, 'F');
+        } else if (item.statut === 'termine') {
+          pdf.setFillColor(34, 197, 94);
+          pdf.circle(barX + barWidth - 3, y + rowHeight/2, 1.5, 'F');
+        }
+      });
+      
+      y += rowHeight;
+    });
+    
+    // ===== LÉGENDE =====
+    y += 5;
+    if (y < pageHeight - 20) {
+      pdf.setFontSize(7);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(...couleurTexte);
+      pdf.text('Légende :', margin, y);
+      
+      y += 4;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(6);
+      
+      // Point vert = En cours
+      pdf.setFillColor(34, 197, 94);
+      pdf.circle(margin + 2, y, 1.5, 'F');
+      pdf.text('En cours / Terminé', margin + 6, y + 1);
+      
+      // Équipes (si vue chantier)
+      if (viewMode === 'chantier') {
+        let legendX = margin + 35;
+        equipes.slice(0, 6).forEach((eq) => {
+          pdf.setFillColor(...hexToRgb(eq.couleur));
+          pdf.rect(legendX, y - 2, 8, 4, 'F');
+          pdf.setTextColor(...couleurTexte);
+          pdf.text(eq.nom, legendX + 10, y + 1);
+          legendX += 35;
+        });
+      }
+    }
+    
+    // ===== PIED DE PAGE =====
+    pdf.setFontSize(6);
+    pdf.setTextColor(...couleurGris);
+    pdf.text('Nord Bati Construction - Planning généré automatiquement', margin, pageHeight - 5);
+    pdf.text(`Page 1/${pdf.internal.getNumberOfPages()}`, pageWidth - margin - 15, pageHeight - 5);
+    
+    // Télécharger le PDF
+    const fileName = `planning-${viewMode}-${startDate}.pdf`;
+    pdf.save(fileName);
+    
+  }, [viewMode, startDate, config, jours, chantiers, equipes]);
+  
+  // Fonction utilitaire pour convertir hex en RGB
+  const hexToRgb = (hex) => {
+    if (!hex) return [100, 116, 139];
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? [
+      parseInt(result[1], 16),
+      parseInt(result[2], 16),
+      parseInt(result[3], 16)
+    ] : [100, 116, 139];
   };
   
   // ============================================
@@ -445,6 +755,27 @@ export default function PlanningGantt({
           }}>
             {formatDateShort(startDate)} → {formatDateShort(addDays(startDate, config.jours - 1))}
           </span>
+          
+          {/* Bouton Export PDF */}
+          <button 
+            onClick={exporterPDF}
+            style={{
+              padding: '0.3rem 0.7rem',
+              background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#fff',
+              cursor: 'pointer',
+              fontSize: '0.7rem',
+              fontWeight: '600',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.3rem'
+            }}
+            title="Exporter le planning en PDF"
+          >
+            <Icons.Download /> PDF
+          </button>
         </div>
       </div>
       

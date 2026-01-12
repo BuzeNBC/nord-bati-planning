@@ -3,7 +3,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, chantiersService, lotsService, documentsService, tachesLivreurService, instructionsService, rappelsValidesService } from './supabaseClient';
+import { supabase, chantiersService, lotsService, documentsService, tachesLivreurService, instructionsService, rappelsValidesService, absencesService } from './supabaseClient';
 
 export function useSupabaseData() {
   // États des données
@@ -11,6 +11,7 @@ export function useSupabaseData() {
   const [tachesLivreur, setTachesLivreur] = useState([]);
   const [userInstructions, setUserInstructions] = useState([]);
   const [rappelsValides, setRappelsValides] = useState(new Set());
+  const [absences, setAbsences] = useState([]);
   
   // États de chargement et erreur
   const [isLoading, setIsLoading] = useState(true);
@@ -40,23 +41,26 @@ export function useSupabaseData() {
     
     try {
       // Charger toutes les données en parallèle
-      const [chantiersData, tachesData, instructionsData, rappelsData] = await Promise.all([
+      const [chantiersData, tachesData, instructionsData, rappelsData, absencesData] = await Promise.all([
         chantiersService.getAll(),
         tachesLivreurService.getAll(),
         instructionsService.getAll(),
-        rappelsValidesService.getAll()
+        rappelsValidesService.getAll(),
+        absencesService.getAll().catch(() => []) // Ne pas bloquer si la table n'existe pas encore
       ]);
       
       setChantiers(chantiersData);
       setTachesLivreur(tachesData);
       setUserInstructions(instructionsData);
       setRappelsValides(rappelsData);
+      setAbsences(absencesData);
       setIsOnline(true);
       
       console.log('✅ Données chargées:', {
         chantiers: chantiersData.length,
         taches: tachesData.length,
-        instructions: instructionsData.length
+        instructions: instructionsData.length,
+        absences: absencesData.length
       });
       
     } catch (err) {
@@ -446,6 +450,104 @@ export function useSupabaseData() {
   }, []);
 
   // ============================================
+  // ACTIONS ABSENCES
+  // ============================================
+  
+  const ajouterAbsence = useCallback(async (absence) => {
+    try {
+      const nouvelleAbsence = await absencesService.create(absence);
+      setAbsences(prev => [...prev, nouvelleAbsence]);
+      return nouvelleAbsence;
+    } catch (err) {
+      console.error('Erreur ajout absence:', err);
+      throw err;
+    }
+  }, []);
+
+  const modifierAbsence = useCallback(async (id, updates) => {
+    try {
+      const absenceModifiee = await absencesService.update(id, updates);
+      setAbsences(prev => prev.map(a => a.id === id ? absenceModifiee : a));
+      return absenceModifiee;
+    } catch (err) {
+      console.error('Erreur modification absence:', err);
+      throw err;
+    }
+  }, []);
+
+  const supprimerAbsence = useCallback(async (id) => {
+    try {
+      await absencesService.delete(id);
+      setAbsences(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      console.error('Erreur suppression absence:', err);
+      throw err;
+    }
+  }, []);
+
+  // Vérifier si un employé est absent à une date donnée
+  const estAbsent = useCallback((employeId, date) => {
+    return absences.some(a => 
+      a.employeId === employeId && 
+      date >= a.dateDebut && 
+      date <= a.dateFin
+    );
+  }, [absences]);
+
+  // Obtenir les absences d'un employé
+  const getAbsencesEmploye = useCallback((employeId) => {
+    return absences.filter(a => a.employeId === employeId);
+  }, [absences]);
+
+  // Vérifier les conflits de planning (équipe avec absent)
+  const verifierConflitsAbsences = useCallback((chantiers, equipes) => {
+    const conflits = [];
+    const today = new Date().toISOString().split('T')[0];
+    
+    chantiers.forEach(chantier => {
+      chantier.lots.forEach(lot => {
+        if (lot.statut === 'termine' || lot.dateFin < today) return;
+        
+        const equipe = equipes.find(e => e.id === lot.equipeId);
+        if (!equipe) return;
+        
+        equipe.membres.forEach(membreId => {
+          // Vérifier chaque jour du lot
+          const debut = new Date(lot.dateDebut);
+          const fin = new Date(lot.dateFin);
+          
+          for (let d = new Date(debut); d <= fin; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            if (dateStr < today) continue;
+            
+            const absence = absences.find(a => 
+              a.employeId === membreId && 
+              dateStr >= a.dateDebut && 
+              dateStr <= a.dateFin
+            );
+            
+            if (absence) {
+              conflits.push({
+                chantier: chantier.nom,
+                chantierId: chantier.id,
+                lot: lot.corps,
+                lotId: lot.id,
+                equipe: equipe.nom,
+                employeId: membreId,
+                date: dateStr,
+                typeAbsence: absence.type
+              });
+              break; // Un seul conflit par lot/membre suffit
+            }
+          }
+        });
+      });
+    });
+    
+    return conflits;
+  }, [absences]);
+
+  // ============================================
   // RETOUR DU HOOK
   // ============================================
   
@@ -455,6 +557,7 @@ export function useSupabaseData() {
     tachesLivreur,
     userInstructions,
     rappelsValides,
+    absences,
     
     // États
     isLoading,
@@ -497,6 +600,15 @@ export function useSupabaseData() {
     // Actions rappels
     validerRappel,
     setRappelsValides,
+    
+    // Actions absences
+    ajouterAbsence,
+    modifierAbsence,
+    supprimerAbsence,
+    estAbsent,
+    getAbsencesEmploye,
+    verifierConflitsAbsences,
+    setAbsences,
     
     // Utilitaires
     reloadData: loadAllData

@@ -543,4 +543,147 @@ export const rappelsValidesService = {
   }
 };
 
+// ============================================
+// FONCTIONS CRUD - ABSENCES (congés, maladie...)
+// ============================================
+
+export const absencesService = {
+  async getAll() {
+    const { data, error } = await supabase
+      .from('absences')
+      .select('*')
+      .order('date_debut', { ascending: true });
+    
+    if (error) {
+      console.error('Erreur getAll absences:', error);
+      throw error;
+    }
+    
+    return data.map(a => ({
+      id: a.id,
+      employeId: a.employe_id,
+      type: a.type,
+      dateDebut: a.date_debut,
+      dateFin: a.date_fin,
+      motif: a.motif
+    }));
+  },
+
+  async create(absence) {
+    const { data, error } = await supabase
+      .from('absences')
+      .insert({
+        employe_id: absence.employeId,
+        type: absence.type,
+        date_debut: absence.dateDebut,
+        date_fin: absence.dateFin,
+        motif: absence.motif || ''
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Erreur create absence:', error);
+      throw error;
+    }
+    
+    return {
+      id: data.id,
+      employeId: data.employe_id,
+      type: data.type,
+      dateDebut: data.date_debut,
+      dateFin: data.date_fin,
+      motif: data.motif
+    };
+  },
+
+  async update(id, updates) {
+    const dbUpdates = {};
+    if (updates.employeId !== undefined) dbUpdates.employe_id = updates.employeId;
+    if (updates.type !== undefined) dbUpdates.type = updates.type;
+    if (updates.dateDebut !== undefined) dbUpdates.date_debut = updates.dateDebut;
+    if (updates.dateFin !== undefined) dbUpdates.date_fin = updates.dateFin;
+    if (updates.motif !== undefined) dbUpdates.motif = updates.motif;
+
+    const { data, error } = await supabase
+      .from('absences')
+      .update(dbUpdates)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Erreur update absence:', error);
+      throw error;
+    }
+    
+    return {
+      id: data.id,
+      employeId: data.employe_id,
+      type: data.type,
+      dateDebut: data.date_debut,
+      dateFin: data.date_fin,
+      motif: data.motif
+    };
+  },
+
+  async delete(id) {
+    const { error } = await supabase
+      .from('absences')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Erreur delete absence:', error);
+      throw error;
+    }
+  },
+
+  // Récupérer les absences pour une période donnée
+  async getForPeriod(dateDebut, dateFin) {
+    const { data, error } = await supabase
+      .from('absences')
+      .select('*')
+      .lte('date_debut', dateFin)
+      .gte('date_fin', dateDebut);
+    
+    if (error) {
+      console.error('Erreur getForPeriod absences:', error);
+      throw error;
+    }
+    
+    return data.map(a => ({
+      id: a.id,
+      employeId: a.employe_id,
+      type: a.type,
+      dateDebut: a.date_debut,
+      dateFin: a.date_fin,
+      motif: a.motif
+    }));
+  },
+
+  // Récupérer les absences d'un employé
+  async getByEmploye(employeId) {
+    const { data, error } = await supabase
+      .from('absences')
+      .select('*')
+      .eq('employe_id', employeId)
+      .order('date_debut', { ascending: false });
+    
+    if (error) {
+      console.error('Erreur getByEmploye absences:', error);
+      throw error;
+    }
+    
+    return data.map(a => ({
+      id: a.id,
+      employeId: a.employe_id,
+      type: a.type,
+      dateDebut: a.date_debut,
+      dateFin: a.date_fin,
+      motif: a.motif
+    }));
+  }
+};
+
 export default supabase;

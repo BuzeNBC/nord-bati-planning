@@ -426,6 +426,7 @@ export default function NordBatiPlanning() {
     tachesLivreur,
     userInstructions,
     rappelsValides,
+    absences,
     isLoading: isLoadingData,
     error: dataError,
     isOnline,
@@ -448,14 +449,29 @@ export default function NordBatiPlanning() {
     ajouterInstruction,
     effacerInstructions,
     validerRappel,
+    ajouterAbsence,
+    modifierAbsence,
+    supprimerAbsence,
+    estAbsent,
+    verifierConflitsAbsences,
     setChantiers,
     setTachesLivreur,
     setUserInstructions,
     setRappelsValides,
+    setAbsences,
     reloadData
   } = useSupabaseData();
   
   const [rappels, setRappels] = useState([]);
+  const [conflitsAbsences, setConflitsAbsences] = useState([]);
+  const [showAbsenceModal, setShowAbsenceModal] = useState(false);
+  const [selectedEmployeAbsence, setSelectedEmployeAbsence] = useState(null);
+  const [absenceForm, setAbsenceForm] = useState({
+    type: 'conge',
+    dateDebut: '',
+    dateFin: '',
+    motif: ''
+  });
   
   const [activeTab, setActiveTab] = useState('aujourdhui');
   const [selectedChantier, setSelectedChantier] = useState(null);
@@ -507,6 +523,16 @@ export default function NordBatiPlanning() {
     const nouveauxRappels = genererRappels(chantiers).filter(r => !rappelsValides.has(r.id));
     setRappels(nouveauxRappels);
   }, [chantiers, rappelsValides]);
+  
+  // Détecter les conflits d'absences
+  useEffect(() => {
+    if (chantiers.length > 0 && absences.length > 0) {
+      const conflits = verifierConflitsAbsences(chantiers, equipes);
+      setConflitsAbsences(conflits);
+    } else {
+      setConflitsAbsences([]);
+    }
+  }, [chantiers, absences, equipes, verifierConflitsAbsences]);
   
   // Synchroniser le chantier sélectionné
   useEffect(() => {
@@ -622,6 +648,15 @@ export default function NordBatiPlanning() {
       })),
       tachesLivreur: tachesLivreur,
       rappelsEnCours: rappels.map(r => ({ id: r.id, chantier: r.chantier, message: r.message })),
+      absences: absences.map(a => ({
+        id: a.id,
+        employeId: a.employeId,
+        employeNom: employes.find(e => e.id === a.employeId)?.nom || 'Inconnu',
+        type: a.type,
+        dateDebut: a.dateDebut,
+        dateFin: a.dateFin
+      })),
+      conflitsAbsences: conflitsAbsences.slice(0, 10),
       chantierCourant: currentChantier,
       historiqueSession: sessionActions,
       instructionsUtilisateur: currentInstructions
@@ -922,6 +957,45 @@ export default function NordBatiPlanning() {
           break;
         }
         
+        // ============================================
+        // ACTIONS ABSENCES
+        // ============================================
+        case 'ajouter_absence': {
+          let employeId = params.employeId;
+          
+          // Rechercher par nom si pas d'ID
+          if (!employeId && params.employeNom) {
+            const employe = employes.find(e => 
+              e.nom.toLowerCase().includes(params.employeNom.toLowerCase())
+            );
+            if (employe) employeId = employe.id;
+          }
+          
+          if (employeId && params.dateDebut && params.dateFin) {
+            await ajouterAbsence({
+              employeId,
+              type: params.type || 'conge',
+              dateDebut: params.dateDebut,
+              dateFin: params.dateFin,
+              motif: params.motif || ''
+            });
+          }
+          break;
+        }
+        
+        case 'supprimer_absence': {
+          if (params.absenceId) {
+            await supprimerAbsence(params.absenceId);
+          }
+          break;
+        }
+        
+        case 'voir_absences': {
+          // Naviguer vers l'onglet équipes pour voir les absences
+          setActiveTab('equipes');
+          break;
+        }
+        
         default:
           console.log('Action non gérée:', action);
           break;
@@ -935,7 +1009,8 @@ export default function NordBatiPlanning() {
     ajouterTacheLivreurDB, modifierTacheLivreur, supprimerTacheLivreur,
     ajouterDocumentDB, supprimerDocumentDB,
     validerRappel, ajouterInstruction, effacerInstructions,
-    selectedChantier
+    ajouterAbsence, supprimerAbsence,
+    selectedChantier, employes
   ]);
   
   // ============================================
@@ -1616,7 +1691,7 @@ export default function NordBatiPlanning() {
               { id: 'aujourdhui', label: "Aujourd'hui", icon: <Icons.Home />, badge: lotsAujourdhui.length },
               { id: 'planning', label: 'Planning', icon: <Icons.Calendar /> },
               { id: 'chantiers', label: 'Chantiers', icon: <Icons.Building />, badge: chantiers.length },
-              { id: 'equipes', label: 'Équipes', icon: <Icons.Users /> },
+              { id: 'equipes', label: 'Équipes', icon: <Icons.Users />, badge: conflitsAbsences.length, badgeColor: conflitsAbsences.length > 0 ? '#ef4444' : null },
               { id: 'livreur', label: 'Alex (Livreur)', icon: <Icons.Truck />, badge: tachesAujourdhui.filter(t => !t.fait).length },
             ].map(tab => (
               <button
@@ -1643,10 +1718,11 @@ export default function NordBatiPlanning() {
                 </span>
                 {tab.badge > 0 && (
                   <span style={{
-                    background: activeTab === tab.id ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.1)',
+                    background: tab.badgeColor || (activeTab === tab.id ? 'rgba(255,107,53,0.3)' : 'rgba(255,255,255,0.1)'),
                     padding: '0.1rem 0.4rem',
                     borderRadius: '8px',
-                    fontSize: '0.65rem'
+                    fontSize: '0.65rem',
+                    color: tab.badgeColor ? '#fff' : 'inherit'
                   }}>
                     {tab.badge}
                   </span>
@@ -2371,11 +2447,121 @@ export default function NordBatiPlanning() {
           {/* ÉQUIPES */}
           {activeTab === 'equipes' && (
             <div>
-              <h2 style={{ margin: '0 0 0.75rem 0', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Icons.Users /> Équipes ({equipes.length})
-              </h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Icons.Users /> Équipes & Absences
+                </h2>
+              </div>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.6rem' }}>
+              {/* ALERTES CONFLITS */}
+              {conflitsAbsences.length > 0 && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.15)',
+                  border: '1px solid rgba(239,68,68,0.4)',
+                  borderRadius: '10px',
+                  padding: '1rem',
+                  marginBottom: '1rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+                    <h3 style={{ margin: 0, fontSize: '0.9rem', color: '#f87171' }}>
+                      Conflits de planning ({conflitsAbsences.length})
+                    </h3>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
+                    {conflitsAbsences.slice(0, 5).map((conflit, idx) => {
+                      const employe = employes.find(e => e.id === conflit.employeId);
+                      return (
+                        <div key={idx} style={{
+                          padding: '0.5rem 0.7rem',
+                          background: 'rgba(0,0,0,0.2)',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <div>
+                            <strong style={{ color: '#fca5a5' }}>{employe?.nom || 'Inconnu'}</strong>
+                            <span style={{ color: '#94a3b8' }}> est en {conflit.typeAbsence} le </span>
+                            <span style={{ color: '#fca5a5' }}>{new Date(conflit.date).toLocaleDateString('fr-FR')}</span>
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                            {conflit.chantier} - {conflit.lot}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {conflitsAbsences.length > 5 && (
+                      <div style={{ color: '#94a3b8', fontSize: '0.75rem', textAlign: 'center' }}>
+                        ... et {conflitsAbsences.length - 5} autres conflits
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* ABSENCES À VENIR */}
+              {absences.filter(a => a.dateFin >= new Date().toISOString().split('T')[0]).length > 0 && (
+                <div style={{
+                  background: 'rgba(251,191,36,0.1)',
+                  border: '1px solid rgba(251,191,36,0.3)',
+                  borderRadius: '10px',
+                  padding: '1rem',
+                  marginBottom: '1rem'
+                }}>
+                  <h3 style={{ margin: '0 0 0.6rem 0', fontSize: '0.85rem', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🗓️ Absences en cours et à venir
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    {absences
+                      .filter(a => a.dateFin >= new Date().toISOString().split('T')[0])
+                      .sort((a, b) => a.dateDebut.localeCompare(b.dateDebut))
+                      .slice(0, 8)
+                      .map(absence => {
+                        const employe = employes.find(e => e.id === absence.employeId);
+                        const typeLabels = { conge: '🏖️ Congé', maladie: '🏥 Maladie', formation: '📚 Formation', autre: '📋 Autre' };
+                        return (
+                          <div key={absence.id} style={{
+                            padding: '0.5rem 0.7rem',
+                            background: 'rgba(0,0,0,0.2)',
+                            borderRadius: '6px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '0.8rem'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span>{typeLabels[absence.type]}</span>
+                              <strong>{employe?.nom || 'Inconnu'}</strong>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+                                {new Date(absence.dateDebut).toLocaleDateString('fr-FR')} → {new Date(absence.dateFin).toLocaleDateString('fr-FR')}
+                              </span>
+                              <button
+                                onClick={() => supprimerAbsence(absence.id)}
+                                style={{
+                                  background: 'rgba(239,68,68,0.2)',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  color: '#f87171',
+                                  cursor: 'pointer',
+                                  padding: '0.2rem 0.4rem',
+                                  fontSize: '0.65rem'
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+              
+              {/* LISTE DES ÉQUIPES */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.8rem' }}>
                 {equipes.map(equipe => {
                   const membres = equipe.membres.map(mid => employes.find(e => e.id === mid)).filter(Boolean);
                   return (
@@ -2393,16 +2579,63 @@ export default function NordBatiPlanning() {
                         </span>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                        {membres.map(m => (
-                          <div key={m.id} style={{
-                            padding: '0.4rem 0.6rem',
-                            background: 'rgba(0,0,0,0.2)',
-                            borderRadius: '4px',
-                            fontSize: '0.8rem'
-                          }}>
-                            {m.nom}
-                          </div>
-                        ))}
+                        {membres.map(m => {
+                          const absencesEmploye = absences.filter(a => 
+                            a.employeId === m.id && 
+                            a.dateFin >= new Date().toISOString().split('T')[0]
+                          );
+                          const estAbsentAujourdhui = absences.some(a => 
+                            a.employeId === m.id && 
+                            new Date().toISOString().split('T')[0] >= a.dateDebut &&
+                            new Date().toISOString().split('T')[0] <= a.dateFin
+                          );
+                          
+                          return (
+                            <div key={m.id} style={{
+                              padding: '0.5rem 0.6rem',
+                              background: estAbsentAujourdhui ? 'rgba(239,68,68,0.15)' : 'rgba(0,0,0,0.2)',
+                              borderRadius: '4px',
+                              fontSize: '0.8rem',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                {estAbsentAujourdhui && <span title="Absent aujourd'hui">🚫</span>}
+                                <span style={{ color: estAbsentAujourdhui ? '#f87171' : 'inherit' }}>{m.nom}</span>
+                                {absencesEmploye.length > 0 && !estAbsentAujourdhui && (
+                                  <span style={{ fontSize: '0.6rem', color: '#fbbf24' }}>
+                                    ({absencesEmploye.length} absence{absencesEmploye.length > 1 ? 's' : ''})
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setSelectedEmployeAbsence(m);
+                                  setAbsenceForm({
+                                    type: 'conge',
+                                    dateDebut: new Date().toISOString().split('T')[0],
+                                    dateFin: new Date().toISOString().split('T')[0],
+                                    motif: ''
+                                  });
+                                  setShowAbsenceModal(true);
+                                }}
+                                style={{
+                                  background: 'rgba(255,107,53,0.2)',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  color: '#ff6b35',
+                                  cursor: 'pointer',
+                                  padding: '0.2rem 0.5rem',
+                                  fontSize: '0.65rem',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                + Absence
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -3097,6 +3330,208 @@ export default function NordBatiPlanning() {
                     }}
                   >
                     🏗️ Créer le chantier
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* MODAL AJOUT ABSENCE */}
+        {showAbsenceModal && selectedEmployeAbsence && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem'
+          }} onClick={() => setShowAbsenceModal(false)}>
+            <div 
+              style={{
+                background: 'linear-gradient(145deg, #1e293b, #0f172a)',
+                borderRadius: '12px',
+                padding: '1.5rem',
+                width: '380px',
+                maxWidth: '100%',
+                border: '1px solid rgba(251,191,36,0.3)',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#fbbf24' }}>
+                  🗓️ Nouvelle absence
+                </h3>
+                <button 
+                  onClick={() => setShowAbsenceModal(false)}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#64748b', 
+                    cursor: 'pointer',
+                    fontSize: '1.25rem',
+                    padding: '0.25rem'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div style={{ 
+                background: 'rgba(251,191,36,0.1)', 
+                padding: '0.6rem 0.8rem', 
+                borderRadius: '6px',
+                marginBottom: '1rem',
+                fontSize: '0.85rem'
+              }}>
+                <strong>{selectedEmployeAbsence.nom}</strong>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Type */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    TYPE D'ABSENCE
+                  </label>
+                  <select
+                    value={absenceForm.type}
+                    onChange={e => setAbsenceForm({ ...absenceForm, type: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    <option value="conge">🏖️ Congé</option>
+                    <option value="maladie">🏥 Maladie</option>
+                    <option value="formation">📚 Formation</option>
+                    <option value="autre">📋 Autre</option>
+                  </select>
+                </div>
+                
+                {/* Dates */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      DU
+                    </label>
+                    <input
+                      type="date"
+                      value={absenceForm.dateDebut}
+                      onChange={e => setAbsenceForm({ ...absenceForm, dateDebut: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                      AU
+                    </label>
+                    <input
+                      type="date"
+                      value={absenceForm.dateFin}
+                      onChange={e => setAbsenceForm({ ...absenceForm, dateFin: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        color: '#e2e8f0',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Motif */}
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: '600' }}>
+                    MOTIF (optionnel)
+                  </label>
+                  <input
+                    type="text"
+                    value={absenceForm.motif}
+                    onChange={e => setAbsenceForm({ ...absenceForm, motif: e.target.value })}
+                    placeholder="Ex: Vacances famille, RDV médical..."
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(0,0,0,0.3)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#e2e8f0',
+                      fontSize: '0.9rem'
+                    }}
+                  />
+                </div>
+                
+                {/* Boutons */}
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    onClick={() => setShowAbsenceModal(false)}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '6px',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!absenceForm.dateDebut || !absenceForm.dateFin) return;
+                      try {
+                        await ajouterAbsence({
+                          employeId: selectedEmployeAbsence.id,
+                          type: absenceForm.type,
+                          dateDebut: absenceForm.dateDebut,
+                          dateFin: absenceForm.dateFin,
+                          motif: absenceForm.motif
+                        });
+                        setShowAbsenceModal(false);
+                      } catch (err) {
+                        console.error('Erreur ajout absence:', err);
+                        alert('Erreur lors de l\'ajout de l\'absence');
+                      }
+                    }}
+                    disabled={!absenceForm.dateDebut || !absenceForm.dateFin}
+                    style={{
+                      flex: 1,
+                      padding: '0.7rem',
+                      background: absenceForm.dateDebut && absenceForm.dateFin ? 'linear-gradient(135deg, #fbbf24, #f59e0b)' : 'rgba(255,255,255,0.1)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      color: absenceForm.dateDebut && absenceForm.dateFin ? '#0f172a' : '#64748b',
+                      cursor: absenceForm.dateDebut && absenceForm.dateFin ? 'pointer' : 'not-allowed',
+                      fontSize: '0.85rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    🗓️ Ajouter l'absence
                   </button>
                 </div>
               </div>

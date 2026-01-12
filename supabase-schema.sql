@@ -67,6 +67,22 @@ CREATE TABLE IF NOT EXISTS rappels_valides (
   validated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 7. TABLE ABSENCES (congés, maladie, formation...)
+CREATE TABLE IF NOT EXISTS absences (
+  id BIGSERIAL PRIMARY KEY,
+  employe_id INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('conge', 'maladie', 'formation', 'autre')),
+  date_debut DATE NOT NULL,
+  date_fin DATE NOT NULL,
+  motif TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index pour les absences
+CREATE INDEX IF NOT EXISTS idx_absences_employe ON absences(employe_id);
+CREATE INDEX IF NOT EXISTS idx_absences_dates ON absences(date_debut, date_fin);
+
 -- ============================================
 -- INDEX POUR PERFORMANCES
 -- ============================================

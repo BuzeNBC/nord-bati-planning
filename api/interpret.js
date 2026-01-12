@@ -82,8 +82,21 @@ ${contexte.rappelsEnCours?.length > 0 ? `
 ${contexte.rappelsEnCours.map(r => `- [${r.id}] ${r.chantier}: ${r.message}`).join('\n')}
 ` : ''}
 
+${contexte.absences?.length > 0 ? `
+🏖️ ABSENCES EN COURS/À VENIR:
+${contexte.absences.map(a => `- [ID:${a.id}] ${a.employeNom} (ID employé:${a.employeId}): ${a.type} du ${a.dateDebut} au ${a.dateFin}`).join('\n')}
+` : ''}
+
+${contexte.conflitsAbsences?.length > 0 ? `
+⚠️ CONFLITS D'ABSENCES (employés planifiés mais absents):
+${contexte.conflitsAbsences.map(c => `- ${c.chantier}/${c.lot}: employé ID ${c.employeId} absent le ${c.date}`).join('\n')}
+` : ''}
+
 ÉQUIPES (avec leurs IDs):
 1=Démol 1, 2=Démol 2, 3=Démol 3, 4=Maçons 1, 5=Maçons 2, 6=Couvreurs, 7=Placo 1, 8=Placo 2, 9=Placo 3, 10=Élec/Plomb 1, 11=Élec/Plomb 2, 12=Façadiers, 13=Menuisiers 1, 14=Menuisiers 2, 15=Faïencier
+
+EMPLOYÉS (pour les absences):
+1=Jean Dupont, 2=Marc Lefebvre, 3=Pierre Martin, 4=Paul Durand, 5=Lucas Bernard, 6=Hugo Petit, 7=Thomas Robert, 8=Julien Richard, 9=Antoine Moreau, 10=Nicolas Simon, 11=Alexandre Laurent, 12=Maxime Michel, 13=David Garcia, 14=Quentin Martinez, 15=Romain Hernandez, 16=Kevin Lopez, 17=Jérémy Gonzalez, 18=Florian Wilson, 19=Guillaume Taylor, 20=Vincent Brown, 21=Damien Jones, 22=Mathieu Davis, 23=Olivier Muller, 24=Sylvain Werner, 25=Frédéric Meyer, 26=Stéphane Patel, 27=Subex (sous-traitant), 28=FacadePro (sous-traitant), 29=Bouchikhi (sous-traitant), 30=PlombTech (sous-traitant)
 
 CORPS TCE: Démolition, Maçonnerie, Couverture, Charpente, Placo, Électricité, Plomberie, Chauffage, Menuiseries ext., Faïence, Façade, Peinture, Enduit, Nettoyage
 
@@ -95,6 +108,7 @@ IMPORTANT:
 - Si tu as demandé "pour quel chantier?" et qu'il répond "Flocon", tu SAIS que c'est pour Flocon
 - UTILISE le chantier en cours (📍) si Busato ne précise pas
 - Pour modifier/supprimer un lot, utilise l'index du lot [0], [1], [2]... affiché ci-dessus
+- Pour les absences, tu peux chercher l'employé par son nom (ex: "Jean est malade" → cherche Jean Dupont)
 
 OUTILS DISPONIBLES:
 - Chantiers: creer_chantier, modifier_chantier, supprimer_chantier, selectionner_chantier, rechercher_chantier, resume_chantier
@@ -103,10 +117,12 @@ OUTILS DISPONIBLES:
 - Documents: ajouter_document, supprimer_document
 - Navigation: naviguer, aller_a_date, planning_equipe
 - Rappels: valider_rappel
+- Absences: ajouter_absence, supprimer_absence, voir_absences
 - Mémoire: memoriser_instruction, oublier_instructions
 
 Si Busato dit "à partir de maintenant...", "dorénavant...", "retiens que..." → utilise memoriser_instruction
 Si Busato dit "oublie ça", "arrête", "annule les règles" → utilise oublier_instructions
+Si Busato dit "X est malade/en congé/absent..." → utilise ajouter_absence
 
 TRÈS IMPORTANT: Réponds TOUJOURS avec un message texte, même quand tu utilises des outils.
 Exemple: Si tu supprimes un chantier, dis "C'est fait ! J'ai supprimé le chantier X." en plus d'utiliser l'outil.
@@ -406,6 +422,46 @@ Parle naturellement, tutoie Busato. Sois concis.`;
         properties: {
           equipeId: { type: "number", description: "ID de l'équipe" },
           equipeName: { type: "string", description: "Nom de l'équipe (ex: 'Démol 1', 'Maçons 2')" }
+        },
+        required: []
+      }
+    },
+    // === ABSENCES ===
+    {
+      name: "ajouter_absence",
+      description: "Ajouter un congé, maladie ou absence pour un employé. Ex: 'Jean est en congé du 15 au 20 janvier', 'Marc est malade aujourd'hui'",
+      input_schema: {
+        type: "object",
+        properties: {
+          employeId: { type: "number", description: "ID de l'employé" },
+          employeNom: { type: "string", description: "Nom de l'employé pour recherche" },
+          type: { type: "string", enum: ["conge", "maladie", "formation", "autre"], description: "Type d'absence" },
+          dateDebut: { type: "string", description: "Date début (YYYY-MM-DD)" },
+          dateFin: { type: "string", description: "Date fin (YYYY-MM-DD), même date si 1 jour" },
+          motif: { type: "string", description: "Motif optionnel" }
+        },
+        required: ["type", "dateDebut", "dateFin"]
+      }
+    },
+    {
+      name: "supprimer_absence",
+      description: "Supprimer/annuler une absence",
+      input_schema: {
+        type: "object",
+        properties: {
+          absenceId: { type: "number", description: "ID de l'absence à supprimer" }
+        },
+        required: ["absenceId"]
+      }
+    },
+    {
+      name: "voir_absences",
+      description: "Voir les absences d'un employé ou toutes les absences. Ex: 'Qui est absent cette semaine?', 'Les congés de Jean'",
+      input_schema: {
+        type: "object",
+        properties: {
+          employeId: { type: "number", description: "ID employé pour filtrer (optionnel)" },
+          employeNom: { type: "string", description: "Nom employé pour filtrer (optionnel)" }
         },
         required: []
       }
